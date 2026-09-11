@@ -24,6 +24,8 @@ jobs:
 
       - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
 
       - name: Sincronizar Assets do Jogo
         run: |
@@ -47,3 +49,4 @@ jobs:
           name: FlyingBird-APK
           path: android/app/build/outputs/apk/debug/FlyingBird.apk
           if-no-files-found: error
+

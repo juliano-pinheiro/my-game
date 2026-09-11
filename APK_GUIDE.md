@@ -36,3 +36,4 @@ Se preferir não baixar arquivos `.apk`:
    [https://juliano-pinheiro.github.io/my-game/](https://juliano-pinheiro.github.io/my-game/)
 2. O navegador exibirá a opção **"Adicionar Flying Bird à tela inicial"** ou toque nos 3 pontinhos do Chrome e escolha **"Instalar aplicativo"**.
 3. O jogo é instalado instantaneamente como um app nativo na sua tela de início e funciona 100% offline!
+
