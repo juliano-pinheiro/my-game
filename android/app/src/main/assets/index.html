@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Flying Bird - Retro Edition</title>
+  <meta name="description" content="Flying Bird - Jogo arcade retrô moderno em HTML5 Canvas e JavaScript. Desvie dos canos, troque skins e quebre recordes!">
+  <meta name="theme-color" content="#1b263b">
+  <meta property="og:title" content="Flying Bird - Retro Edition">
+  <meta property="og:description" content="Jogue Flying Bird direto no seu navegador! Física suave, skins modernas e efeitos de áudio.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='46' fill='%23f59e0b'/><circle cx='62' cy='40' r='14' fill='%23ffffff'/><circle cx='66' cy='40' r='7' fill='%230f172a'/><circle cx='64' cy='37' r='2.5' fill='%23ffffff'/><polygon points='70,48 94,56 70,64' fill='%23ea580c'/><path d='M22,46 Q38,46 44,58 Q34,68 22,58 Z' fill='%23d97706'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@700;800&family=Lilita+One&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game-wrapper">
+    <div id="game-container">
+      <canvas id="gameCanvas" width="360" height="640"></canvas>
+      
+      <!-- Overlay de controles na tela para mobile/desktop -->
+      <div id="ui-overlay">
+        <!-- Botão de som / mudo -->
+        <button id="sound-btn" title="Ativar/Desativar Som" aria-label="Som">
+          <span id="sound-icon">🔊</span>
+        </button>
+        <!-- Botão de trocar skin -->
+        <button id="skin-btn" title="Trocar Skin do Pássaro" aria-label="Skin">
+          <span id="skin-icon">🕶️</span>
+        </button>
+        <!-- Botão de pausa -->
+        <button id="pause-btn" title="Pausar jogo" aria-label="Pausar">
+          <span id="pause-icon">⏸️</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="instructions-panel">
+      <h3>🎮 Como Jogar</h3>
+      <ul>
+        <li><kbd>Espaço</kbd>, <kbd>Seta Cima</kbd> ou <strong>Clique</strong>: Voar / Pular</li>
+        <li><kbd>S</kbd>: Trocar Skin (na tela inicial)</li>
+        <li><kbd>P</kbd>: Pausar / Continuar</li>
+        <li><strong>No Celular:</strong> Toque na tela</li>
+      </ul>
+      <p class="credits">Desvie dos canos e supere o seu melhor recorde!</p>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,24 @@
+{
+  "name": "Flying Bird - Retro Edition",
+  "short_name": "Flying Bird",
+  "description": "Jogo arcade retrô moderno de desviar de canos com física suave e skins personalizadas.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1b263b",
+  "theme_color": "#1b263b",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><circle cx='96' cy='96' r='88' fill='%23f59e0b'/><circle cx='120' cy='78' r='28' fill='%23ffffff'/><circle cx='128' cy='78' r='14' fill='%230f172a'/><circle cx='124' cy='72' r='5' fill='%23ffffff'/><polygon points='136,94 182,110 136,126' fill='%23ea580c'/><path d='M42,90 Q74,90 86,114 Q66,134 42,114 Z' fill='%23d97706'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><circle cx='256' cy='256' r='235' fill='%23f59e0b'/><circle cx='320' cy='208' r='75' fill='%23ffffff'/><circle cx='341' cy='208' r='37' fill='%230f172a'/><circle cx='331' cy='192' r='13' fill='%23ffffff'/><polygon points='363,251 485,293 363,336' fill='%23ea580c'/><path d='M112,240 Q197,240 229,304 Q176,357 112,304 Z' fill='%23d97706'/></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
