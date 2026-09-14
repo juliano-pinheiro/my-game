@@ -1195,13 +1195,6 @@
     const text = score.toString();
     const scoreY = 55;
 
-    // Suavizar animação de pop ao marcar ponto
-    if (scoreScale > 1.005) {
-      scoreScale += (1.0 - scoreScale) * 0.18;
-    } else {
-      scoreScale = 1.0;
-    }
-
     ctx.translate(GAME_WIDTH / 2, scoreY);
     ctx.scale(scoreScale, scoreScale);
 
@@ -1329,13 +1322,6 @@
     ctx.fillStyle = '#b45309';
     ctx.font = '9px "Press Start 2P", monospace';
     ctx.fillText('PONTOS', cardX + cardW - 20, cardY + 35);
-
-    // Animar contagem do score até o valor final
-    if (scoreCounterAnimation < score) {
-      scoreCounterAnimation += 0.5;
-    } else {
-      scoreCounterAnimation = score;
-    }
 
     const currentScoreText = Math.floor(scoreCounterAnimation).toString();
     ctx.font = 'bold 24px "Lilita One", "Fredoka", "Impact", "Arial Black", sans-serif';
@@ -1715,7 +1701,6 @@
   // Toast flutuante de confirmação da troca de skin
   function drawSkinToast() {
     if (skinToastTimer <= 0) return;
-    skinToastTimer--;
 
     ctx.save();
     const alpha = Math.min(1, skinToastTimer / 18);
@@ -1748,9 +1733,16 @@
   }
 
   // ----------------------------------------------------
-  // LOOP PRINCIPAL DO JOGO (60 FPS)
+  // LOOP PRINCIPAL COM TIMESTEP FIXO (60 FPS DETERMINÍSTICO)
+  // Garante velocidade idêntica em qualquer taxa de atualização (60Hz, 90Hz, 120Hz, 144Hz)
   // ----------------------------------------------------
-  function loop() {
+  const TARGET_FPS = 60;
+  const STEP = 1000 / TARGET_FPS; // 16.6667ms por passo de física
+  const MAX_ACCUMULATOR = 100;    // Previne saltos bruscos se o app for minimizado/bloqueado
+  let lastTime = 0;
+  let accumulator = 0;
+
+  function updateGameLogic() {
     frames++;
 
     // Atualização de física e lógica
@@ -1766,9 +1758,31 @@
 
       if (flashAlpha > 0) flashAlpha -= 0.08;
       if (flashAlpha < 0) flashAlpha = 0;
+
+      // Suavizar animação de pop ao marcar ponto
+      if (scoreScale > 1.005) {
+        scoreScale += (1.0 - scoreScale) * 0.18;
+      } else {
+        scoreScale = 1.0;
+      }
+
+      // Animar contagem do score no game over
+      if (currentState === STATE.GAMEOVER) {
+        if (scoreCounterAnimation < score) {
+          scoreCounterAnimation += 0.5;
+        } else {
+          scoreCounterAnimation = score;
+        }
+      }
     }
 
-    // Renderização
+    // Timer do aviso de skin
+    if (skinToastTimer > 0) {
+      skinToastTimer--;
+    }
+  }
+
+  function render() {
     ctx.save();
     // Aplicar Screen Shake em colisões
     if (screenShake > 0) {
@@ -1797,9 +1811,54 @@
     drawGameOverModal();
     drawPauseScreen();
     drawSkinToast();
+  }
+
+  function loop(timestamp) {
+    const currentTime = typeof timestamp === 'number' ? timestamp : performance.now();
+    if (!lastTime) {
+      lastTime = currentTime;
+    }
+
+    let deltaTime = currentTime - lastTime;
+    lastTime = currentTime;
+
+    // Se o usuário trocou de app ou o celular travou brevemente, limita o delta acumulado
+    if (deltaTime > MAX_ACCUMULATOR) {
+      deltaTime = MAX_ACCUMULATOR;
+    }
+    if (deltaTime < 0) {
+      deltaTime = 0;
+    }
+
+    accumulator += deltaTime;
+
+    // Executa os passos de física exatamente à taxa fixa de 60Hz
+    while (accumulator >= STEP) {
+      updateGameLogic();
+      accumulator -= STEP;
+    }
+
+    // Renderiza na taxa nativa da tela (60Hz, 90Hz, 120Hz)
+    render();
 
     requestAnimationFrame(loop);
   }
+
+  // Prevenir acelerações abruptas ao minimizar ou alternar o app no celular
+  window.addEventListener('blur', () => {
+    lastTime = 0;
+    accumulator = 0;
+  });
+
+  window.addEventListener('focus', () => {
+    lastTime = 0;
+    accumulator = 0;
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    lastTime = 0;
+    accumulator = 0;
+  });
 
   // Iniciar loop do jogo
   requestAnimationFrame(loop);
