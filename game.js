@@ -43,7 +43,23 @@
     }
   ];
 
-  let currentSkinIndex = parseInt(localStorage.getItem('flying_skin_index') || localStorage.getItem('flappy_skin_index') || '0', 10);
+  // Acesso seguro ao localStorage (evita SecurityError ao rodar por file:/// ou janelas anônimas)
+  const safeStorage = {
+    get(key, fallback = null) {
+      try {
+        return localStorage.getItem(key) ?? fallback;
+      } catch (e) {
+        return fallback;
+      }
+    },
+    set(key, val) {
+      try {
+        localStorage.setItem(key, val);
+      } catch (e) {}
+    }
+  };
+
+  let currentSkinIndex = parseInt(safeStorage.get('flying_skin_index') || safeStorage.get('flappy_skin_index') || '0', 10);
   if (isNaN(currentSkinIndex) || currentSkinIndex < 0 || currentSkinIndex >= SKINS.length) {
     currentSkinIndex = 0;
   }
@@ -67,9 +83,9 @@
   let previousState = STATE.READY;
   let frames = 0;
   let score = 0;
-  let bestScore = parseInt(localStorage.getItem('flying_best_score') || localStorage.getItem('flappy_best_score') || '0', 10);
+  let bestScore = parseInt(safeStorage.get('flying_best_score') || safeStorage.get('flappy_best_score') || '0', 10);
   let isNewRecord = false;
-  let isMuted = (localStorage.getItem('flying_muted') ?? localStorage.getItem('flappy_muted')) === 'true';
+  let isMuted = (safeStorage.get('flying_muted') ?? safeStorage.get('flappy_muted')) === 'true';
   let gameOverTime = 0;
   let scoreCounterAnimation = 0;
   let scoreScale = 1.0;
@@ -196,7 +212,7 @@
   soundBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     isMuted = !isMuted;
-    localStorage.setItem('flying_muted', isMuted ? 'true' : 'false');
+    safeStorage.set('flying_muted', isMuted ? 'true' : 'false');
     soundIcon.textContent = isMuted ? '🔇' : '🔊';
   });
 
@@ -206,7 +222,7 @@
 
     initAudio();
     currentSkinIndex = (currentSkinIndex + 1) % SKINS.length;
-    localStorage.setItem('flying_skin_index', currentSkinIndex.toString());
+    safeStorage.set('flying_skin_index', currentSkinIndex.toString());
     if (skinIcon) skinIcon.textContent = SKINS[currentSkinIndex].icon;
     skinToastTimer = 90; // Exibe aviso por 1.5s
     playSound('swoosh');
@@ -1161,7 +1177,7 @@
     if (score > bestScore) {
       bestScore = score;
       isNewRecord = true;
-      localStorage.setItem('flying_best_score', bestScore.toString());
+      safeStorage.set('flying_best_score', bestScore.toString());
     } else {
       isNewRecord = false;
     }
@@ -1685,18 +1701,28 @@
     }
   });
 
-  // Eventos de toque no Canvas (Mobile)
-  canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    handleAction(e, true);
-  }, { passive: false });
-
-  // Eventos de clique do Mouse no Canvas
-  canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 0) { // Botão esquerdo
+  // Suporte unificado para Toque e Clique (Mobile e Desktop)
+  if (window.PointerEvent) {
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.isPrimary) {
+        e.preventDefault();
+        handleAction(e, true);
+      }
+    }, { passive: false });
+  } else {
+    // Eventos de toque no Canvas (Mobile legado)
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
       handleAction(e, true);
-    }
-  });
+    }, { passive: false });
+
+    // Eventos de clique do Mouse no Canvas (Desktop legado)
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 0) {
+        handleAction(e, true);
+      }
+    });
+  }
 
   // Toast flutuante de confirmação da troca de skin
   function drawSkinToast() {
