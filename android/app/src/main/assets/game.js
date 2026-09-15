@@ -83,7 +83,37 @@
   let previousState = STATE.READY;
   let frames = 0;
   let score = 0;
-  let bestScore = parseInt(safeStorage.get('flying_best_score') || safeStorage.get('flappy_best_score') || '0', 10);
+
+  // Modos de Jogo
+  const GAME_MODE = {
+    NORMAL: 'normal',
+    TURBO: 'turbo'
+  };
+
+  let currentMode = safeStorage.get('flying_game_mode', GAME_MODE.NORMAL);
+  if (currentMode !== GAME_MODE.NORMAL && currentMode !== GAME_MODE.TURBO) {
+    currentMode = GAME_MODE.NORMAL;
+  }
+
+  // Recordes separados por modo
+  let bestScoreNormal = parseInt(safeStorage.get('flying_best_score_normal') || safeStorage.get('flying_best_score') || '0', 10);
+  let bestScoreTurbo = parseInt(safeStorage.get('flying_best_score_turbo') || '0', 10);
+
+  function getBestScore() {
+    return currentMode === GAME_MODE.TURBO ? bestScoreTurbo : bestScoreNormal;
+  }
+
+  function setMode(newMode) {
+    if (currentState !== STATE.READY) return;
+    currentMode = newMode;
+    safeStorage.set('flying_game_mode', currentMode);
+    playSound('swoosh');
+  }
+
+  function toggleMode() {
+    setMode(currentMode === GAME_MODE.NORMAL ? GAME_MODE.TURBO : GAME_MODE.NORMAL);
+  }
+
   let isNewRecord = false;
   let isMuted = (safeStorage.get('flying_muted') ?? safeStorage.get('flappy_muted')) === 'true';
   let gameOverTime = 0;
@@ -339,18 +369,21 @@
   function updateBackground() {
     if (currentState === STATE.GAMEOVER || currentState === STATE.PAUSED) return;
 
+    const currentSpeed = (typeof pipes !== 'undefined' && pipes.currentSpeed) ? pipes.currentSpeed : 2.4;
+    const speedRatio = currentSpeed / 2.4;
+
     // Movimentação das nuvens
     clouds.forEach(c => {
-      c.x -= c.speed;
+      c.x -= c.speed * speedRatio;
       if (c.x < -80 * c.scale) {
         c.x = GAME_WIDTH + 40;
         c.y = 50 + Math.random() * 120;
       }
     });
 
-    // Movimento do cenário
-    cityScrollOffset = (cityScrollOffset + 0.6) % 360;
-    groundScrollOffset = (groundScrollOffset + 2.4) % 24;
+    // Movimento do cenário e do chão
+    cityScrollOffset = (cityScrollOffset + 0.6 * speedRatio) % 360;
+    groundScrollOffset = (groundScrollOffset + currentSpeed) % 24;
   }
 
   function drawSkyAndCity() {
@@ -1013,17 +1046,36 @@
     gap: 135, // Abertura vertical entre os canos
     capHeight: 26,
     capOverhang: 3,
-    speed: 2.4,
+    baseSpeed: 2.4,
+    currentSpeed: 2.4,
     spawnTimer: 0,
     spawnInterval: 95,
+
+    getSpeed() {
+      if (currentMode === GAME_MODE.TURBO) {
+        // Modo Turbo: acelera suavemente (+0.05 por ponto) até o limite jogável de 3.6 px/frame
+        return Math.min(3.6, this.baseSpeed + score * 0.05);
+      }
+      return this.baseSpeed;
+    },
+
+    getSpawnInterval() {
+      // Mantém a distância entre canos uniforme em aprox 228 pixels
+      return Math.round(228 / this.currentSpeed);
+    },
 
     reset() {
       this.items = [];
       this.spawnTimer = 0;
+      this.currentSpeed = this.baseSpeed;
+      this.spawnInterval = 95;
     },
 
     update() {
       if (currentState !== STATE.PLAYING) return;
+
+      this.currentSpeed = this.getSpeed();
+      this.spawnInterval = this.getSpawnInterval();
 
       this.spawnTimer++;
       if (this.spawnTimer >= this.spawnInterval) {
@@ -1044,7 +1096,7 @@
       // Mover canos e verificar pontuação/colisão
       for (let i = this.items.length - 1; i >= 0; i--) {
         const p = this.items[i];
-        p.x -= this.speed;
+        p.x -= this.currentSpeed;
 
         // Ponto marcado quando ultrapassa o centro do pássaro
         if (!p.passed && p.x + this.width < bird.x) {
@@ -1173,13 +1225,24 @@
     addExplosion(bird.x, bird.y, '#facc15', 16);
     addExplosion(bird.x, bird.y, '#ffffff', 8);
 
-    // Atualizar recorde
-    if (score > bestScore) {
-      bestScore = score;
-      isNewRecord = true;
-      safeStorage.set('flying_best_score', bestScore.toString());
+    // Atualizar recorde conforme o modo atual
+    if (currentMode === GAME_MODE.TURBO) {
+      if (score > bestScoreTurbo) {
+        bestScoreTurbo = score;
+        isNewRecord = true;
+        safeStorage.set('flying_best_score_turbo', bestScoreTurbo.toString());
+      } else {
+        isNewRecord = false;
+      }
     } else {
-      isNewRecord = false;
+      if (score > bestScoreNormal) {
+        bestScoreNormal = score;
+        isNewRecord = true;
+        safeStorage.set('flying_best_score_normal', bestScoreNormal.toString());
+        safeStorage.set('flying_best_score', bestScoreNormal.toString());
+      } else {
+        isNewRecord = false;
+      }
     }
 
     scoreCounterAnimation = 0;
@@ -1232,6 +1295,34 @@
     ctx.fillText(text, 0, 0);
 
     ctx.restore();
+
+    // Emblema de Velocidade no Modo Turbo
+    if (currentMode === GAME_MODE.TURBO) {
+      ctx.save();
+      const mult = (pipes.currentSpeed / 2.4).toFixed(1);
+      const isMax = pipes.currentSpeed >= 3.6;
+      const badgeText = isMax ? `⚡ TURBO MAX (${mult}x)` : `⚡ TURBO ${mult}x`;
+      ctx.font = '7.5px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+
+      const badgeW = isMax ? 138 : 118;
+      const badgeH = 18;
+      const badgeX = GAME_WIDTH / 2 - badgeW / 2;
+      const badgeY = 92;
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.strokeStyle = isMax ? '#ef4444' : '#f59e0b';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 5);
+      else ctx.rect(badgeX, badgeY, badgeW, badgeH);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isMax ? '#f87171' : '#fde047';
+      ctx.fillText(badgeText, GAME_WIDTH / 2, badgeY + 12);
+      ctx.restore();
+    }
   }
 
   function drawReadyScreen() {
@@ -1242,7 +1333,7 @@
 
     // Título FLYING BIRD
     const pulse = Math.sin(frames * 0.08) * 3;
-    const titleY = 150 + pulse;
+    const titleY = 140 + pulse;
 
     ctx.font = '24px "Press Start 2P", monospace';
     // Sombra do título
@@ -1254,43 +1345,117 @@
 
     // Seletor / Badge da Skin Selecionada
     const skin = SKINS[currentSkinIndex];
-    const skinCardY = 320;
+    const skinCardY = 295;
+    const skinCardW = 220;
+    const skinCardH = 32;
     ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
     ctx.strokeStyle = '#38bdf8';
     ctx.lineWidth = 1.8;
     ctx.beginPath();
     if (ctx.roundRect) {
-      ctx.roundRect(GAME_WIDTH / 2 - 110, skinCardY, 220, 34, 8);
+      ctx.roundRect(GAME_WIDTH / 2 - skinCardW / 2, skinCardY, skinCardW, skinCardH, 7);
     } else {
-      ctx.rect(GAME_WIDTH / 2 - 110, skinCardY, 220, 34);
+      ctx.rect(GAME_WIDTH / 2 - skinCardW / 2, skinCardY, skinCardW, skinCardH);
     }
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '9px "Press Start 2P", monospace';
+    ctx.font = '8.5px "Press Start 2P", monospace';
     ctx.fillStyle = '#facc15';
-    ctx.fillText(skin.icon + ' ' + skin.name, GAME_WIDTH / 2, skinCardY + 16);
+    ctx.fillText(skin.icon + ' ' + skin.name, GAME_WIDTH / 2, skinCardY + 14);
+
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('[S] ou Toque p/ Trocar Skin', GAME_WIDTH / 2, skinCardY + 25);
+
+    // --- SELETOR DE MODOS DE JOGO (Cards lado a lado) ---
+    const modeCardY = 338;
+    const cardW = 105;
+    const cardH = 46;
+    const leftX = GAME_WIDTH / 2 - cardW - 5;
+    const rightX = GAME_WIDTH / 2 + 5;
+
+    // Card Modo Normal
+    const isNormal = currentMode === GAME_MODE.NORMAL;
+    ctx.save();
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(leftX, modeCardY, cardW, cardH, 7);
+    else ctx.rect(leftX, modeCardY, cardW, cardH);
+
+    ctx.fillStyle = isNormal ? 'rgba(6, 78, 59, 0.9)' : 'rgba(15, 23, 42, 0.55)';
+    ctx.fill();
+    ctx.lineWidth = isNormal ? 2.5 : 1.2;
+    ctx.strokeStyle = isNormal ? '#34d399' : '#475569';
+    ctx.stroke();
+
+    ctx.font = isNormal ? 'bold 8.5px "Press Start 2P", monospace' : '8px "Press Start 2P", monospace';
+    ctx.fillStyle = isNormal ? '#a7f3d0' : '#94a3b8';
+    ctx.fillText('🟢 NORMAL', leftX + cardW / 2, modeCardY + 16);
 
     ctx.font = '6.5px "Press Start 2P", monospace';
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText('[S] ou Toque p/ Trocar Skin', GAME_WIDTH / 2, skinCardY + 27);
+    ctx.fillStyle = isNormal ? '#6ee7b7' : '#64748b';
+    ctx.fillText('Clássico', leftX + cardW / 2, modeCardY + 28);
+
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillStyle = isNormal ? '#fde047' : '#64748b';
+    ctx.fillText(`Top: ${bestScoreNormal}`, leftX + cardW / 2, modeCardY + 39);
+    ctx.restore();
+
+    // Card Modo Turbo
+    const isTurbo = currentMode === GAME_MODE.TURBO;
+    ctx.save();
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(rightX, modeCardY, cardW, cardH, 7);
+    else ctx.rect(rightX, modeCardY, cardW, cardH);
+
+    ctx.fillStyle = isTurbo ? 'rgba(120, 53, 15, 0.92)' : 'rgba(15, 23, 42, 0.55)';
+    ctx.fill();
+    ctx.lineWidth = isTurbo ? 2.5 : 1.2;
+    ctx.strokeStyle = isTurbo ? '#f59e0b' : '#475569';
+    ctx.stroke();
+
+    ctx.font = isTurbo ? 'bold 8.5px "Press Start 2P", monospace' : '8px "Press Start 2P", monospace';
+    ctx.fillStyle = isTurbo ? '#fde047' : '#94a3b8';
+    ctx.fillText('⚡ TURBO', rightX + cardW / 2, modeCardY + 16);
+
+    ctx.font = '6.5px "Press Start 2P", monospace';
+    ctx.fillStyle = isTurbo ? '#fbbf24' : '#64748b';
+    ctx.fillText('Progressivo', rightX + cardW / 2, modeCardY + 28);
+
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillStyle = isTurbo ? '#fde047' : '#64748b';
+    ctx.fillText(`Top: ${bestScoreTurbo}`, rightX + cardW / 2, modeCardY + 39);
+    ctx.restore();
+
+    // Dica de troca de modo
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText('[M] ou Toque para escolher modo', GAME_WIDTH / 2, modeCardY + cardH + 11);
 
     // Subtítulo / Instrução de Voo
-    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.font = '9.5px "Press Start 2P", monospace';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('CLIQUE OU ESPAÇO', GAME_WIDTH / 2, 385);
-    ctx.fillText('PARA VOAR', GAME_WIDTH / 2, 405);
+    ctx.fillText('CLIQUE OU ESPAÇO', GAME_WIDTH / 2, 425);
+    ctx.fillText('PARA VOAR', GAME_WIDTH / 2, 442);
 
     // Botão visual "JOGAR"
+    const playBtnY = 458;
+    const playBtnW = 140;
+    const playBtnH = 34;
     ctx.fillStyle = '#e11d48';
-    ctx.fillRect(GAME_WIDTH / 2 - 70, 435, 140, 36);
+    ctx.fillRect(GAME_WIDTH / 2 - playBtnW / 2, playBtnY, playBtnW, playBtnH);
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(GAME_WIDTH / 2 - 70, 435, 140, 36);
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(GAME_WIDTH / 2 - playBtnW / 2, playBtnY, playBtnW, playBtnH);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '11px "Press Start 2P", monospace';
-    ctx.fillText('JOGAR', GAME_WIDTH / 2, 457);
+    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.fillText('JOGAR', GAME_WIDTH / 2, playBtnY + 22);
+
+    // Recorde Atual do modo selecionado
+    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(`🏆 RECORDE ${isTurbo ? 'TURBO' : 'NORMAL'}: ${getBestScore()}`, GAME_WIDTH / 2, 509);
 
     ctx.restore();
   }
@@ -1352,7 +1517,7 @@
     ctx.font = '9px "Press Start 2P", monospace';
     ctx.fillText('MELHOR', cardX + cardW - 20, cardY + 95);
 
-    const bestScoreText = bestScore.toString();
+    const bestScoreText = getBestScore().toString();
     ctx.font = 'bold 24px "Lilita One", "Fredoka", "Impact", "Arial Black", sans-serif';
     ctx.lineWidth = 4.5;
     ctx.lineJoin = 'round';
@@ -1360,6 +1525,12 @@
     ctx.strokeText(bestScoreText, cardX + cardW - 20, cardY + 122);
     ctx.fillStyle = '#fde047';
     ctx.fillText(bestScoreText, cardX + cardW - 20, cardY + 122);
+
+    // Identificador do Modo jogado no Game Over
+    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.fillStyle = currentMode === GAME_MODE.TURBO ? '#ea580c' : '#15803d';
+    ctx.textAlign = 'center';
+    ctx.fillText(currentMode === GAME_MODE.TURBO ? '⚡ MODO TURBO' : '🟢 MODO NORMAL', cardX + cardW / 2, cardY + cardH - 12);
 
     // Emblema "NOVO" se bateu o recorde
     if (isNewRecord) {
@@ -1660,14 +1831,26 @@
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
-        const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
-        const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+        const clientX = (e.clientX !== undefined && e.clientX !== null) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const clientY = (e.clientY !== undefined && e.clientY !== null) ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
         const canvasX = (clientX - rect.left) * scaleX;
         const canvasY = (clientY - rect.top) * scaleY;
 
-        // Se clicou no botão/badge da skin (y: 315-360, x centralizado)
-        if (canvasY >= 315 && canvasY <= 360 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 + 115) {
+        // Se clicou no botão/badge da skin (y: 292-330, x centralizado)
+        if (canvasY >= 292 && canvasY <= 330 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 + 115) {
           cycleSkin();
+          return;
+        }
+
+        // Se clicou no Card Modo Normal (x: leftX a leftX+cardW, y: 335 a 390)
+        if (canvasY >= 335 && canvasY <= 390 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 - 4) {
+          setMode(GAME_MODE.NORMAL);
+          return;
+        }
+
+        // Se clicou no Card Modo Turbo (x: rightX a rightX+cardW, y: 335 a 390)
+        if (canvasY >= 335 && canvasY <= 390 && canvasX >= GAME_WIDTH / 2 + 4 && canvasX <= GAME_WIDTH / 2 + 115) {
+          setMode(GAME_MODE.TURBO);
           return;
         }
       }
@@ -1694,6 +1877,11 @@
       if (currentState === STATE.READY) {
         e.preventDefault();
         cycleSkin();
+      }
+    } else if (e.code === 'KeyM') {
+      if (currentState === STATE.READY) {
+        e.preventDefault();
+        toggleMode();
       }
     } else if (e.code === 'KeyP') {
       e.preventDefault();
