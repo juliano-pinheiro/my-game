@@ -12,34 +12,83 @@
   const soundIcon = document.getElementById('sound-icon');
   const skinBtn = document.getElementById('skin-btn');
   const skinIcon = document.getElementById('skin-icon');
+  const shopBtn = document.getElementById('shop-btn');
+  const shopIcon = document.getElementById('shop-icon');
   const pauseBtn = document.getElementById('pause-btn');
   const pauseIcon = document.getElementById('pause-icon');
-
-  // Skins do Pássaro (Estilo Moderno)
+  // Skins do Pássaro (8 Skins: de Comuns a Lendárias com Preços e Raridades)
   const SKINS = [
     {
+      id: 'classic_hd',
+      name: 'Clássico HD',
+      icon: '🐥',
+      rarity: 'Comum',
+      rarityColor: '#10b981',
+      price: 0,
+      particleColor: '#facc15'
+    },
+    {
       id: 'aviator',
-      name: 'Aviador Moderno',
+      name: 'Aviador',
       icon: '🕶️',
+      rarity: 'Comum',
+      rarityColor: '#10b981',
+      price: 35,
       particleColor: '#f97316'
     },
     {
+      id: 'gentleman',
+      name: 'Lorde Cartola',
+      icon: '🎩',
+      rarity: 'Rara',
+      rarityColor: '#38bdf8',
+      price: 80,
+      particleColor: '#60a5fa'
+    },
+    {
+      id: 'bat',
+      name: 'Pássaro Morcego',
+      icon: '🦇',
+      rarity: 'Rara',
+      rarityColor: '#38bdf8',
+      price: 150,
+      particleColor: '#a855f7'
+    },
+    {
       id: 'cyber',
-      name: 'Cyberpunk Neon',
+      name: 'Cyber Neon',
       icon: '⚡',
+      rarity: 'Épica',
+      rarityColor: '#ec4899',
+      price: 260,
       particleColor: '#00f2fe'
+    },
+    {
+      id: 'king',
+      name: 'Rei Dourado',
+      icon: '👑',
+      rarity: 'Épica',
+      rarityColor: '#ec4899',
+      price: 420,
+      particleColor: '#fbbf24'
     },
     {
       id: 'phoenix',
       name: 'Fênix Mística',
       icon: '🔥',
+      rarity: 'Lendária',
+      rarityColor: '#f59e0b',
+      price: 650,
       particleColor: '#ef4444'
     },
     {
-      id: 'classic_hd',
-      name: 'Clássico HD',
-      icon: '🐥',
-      particleColor: '#facc15'
+      id: 'cosmic',
+      name: 'Galáctico',
+      icon: '🌌',
+      rarity: 'Lendária',
+      rarityColor: '#f59e0b',
+      price: 950,
+      particleColor: '#c084fc'
     }
   ];
 
@@ -59,11 +108,98 @@
     }
   };
 
-  let currentSkinIndex = parseInt(safeStorage.get('flying_skin_index') || safeStorage.get('flappy_skin_index') || '0', 10);
-  if (isNaN(currentSkinIndex) || currentSkinIndex < 0 || currentSkinIndex >= SKINS.length) {
+  // Sistema de Economia e Inventário de Skins
+  let coins = parseInt(safeStorage.get('flying_coins') || '0', 10);
+  if (isNaN(coins) || coins < 0) coins = 0;
+  let lastCoinsEarned = 0;
+
+  let unlockedSkins = [];
+  try {
+    const storedUnlocked = safeStorage.get('flying_unlocked_skins');
+    if (storedUnlocked) {
+      unlockedSkins = JSON.parse(storedUnlocked);
+    }
+  } catch (e) {
+    unlockedSkins = [];
+  }
+  if (!Array.isArray(unlockedSkins) || unlockedSkins.length === 0) {
+    unlockedSkins = ['classic_hd'];
+  }
+  if (!unlockedSkins.includes('classic_hd')) {
+    unlockedSkins.push('classic_hd');
+  }
+
+  function isSkinUnlocked(skinId) {
+    return unlockedSkins.includes(skinId);
+  }
+
+  function saveInventory() {
+    safeStorage.set('flying_coins', coins.toString());
+    safeStorage.set('flying_unlocked_skins', JSON.stringify(unlockedSkins));
+    safeStorage.set('flying_skin_index', currentSkinIndex.toString());
+  }
+
+  let currentSkinIndex = parseInt(safeStorage.get('flying_skin_index') || '0', 10);
+  if (isNaN(currentSkinIndex) || currentSkinIndex < 0 || currentSkinIndex >= SKINS.length || !isSkinUnlocked(SKINS[currentSkinIndex].id)) {
     currentSkinIndex = 0;
   }
   let skinToastTimer = 0;
+
+  // Estados e Navegação da Loja
+  let shopPage = 0; // 0 = Pág 1 (skins 0..3), 1 = Pág 2 (skins 4..7)
+  const SKINS_PER_PAGE = 4;
+  let shopToastMessage = '';
+  let shopToastTimer = 0;
+  let shopToastColor = '#facc15';
+
+  function showShopToast(msg, color = '#facc15') {
+    shopToastMessage = msg;
+    shopToastColor = color;
+    shopToastTimer = 90;
+  }
+
+  function openShop() {
+    if (currentState === STATE.PLAYING) return;
+    previousState = currentState;
+    currentState = STATE.SHOP;
+    updateUIState();
+    playSound('swoosh');
+  }
+
+  function closeShop() {
+    if (currentState !== STATE.SHOP) return;
+    currentState = (previousState === STATE.GAMEOVER) ? STATE.GAMEOVER : STATE.READY;
+    updateUIState();
+    playSound('swoosh');
+  }
+
+  function buyOrEquipSkin(skinIndex) {
+    if (skinIndex < 0 || skinIndex >= SKINS.length) return;
+    const skin = SKINS[skinIndex];
+
+    if (isSkinUnlocked(skin.id)) {
+      currentSkinIndex = skinIndex;
+      saveInventory();
+      if (skinIcon) skinIcon.textContent = skin.icon;
+      showShopToast(`Equipado: ${skin.icon} ${skin.name}`, '#34d399');
+      playSound('swoosh');
+    } else {
+      if (coins >= skin.price) {
+        coins -= skin.price;
+        unlockedSkins.push(skin.id);
+        currentSkinIndex = skinIndex;
+        saveInventory();
+        if (skinIcon) skinIcon.textContent = skin.icon;
+        showShopToast(`Comprado: ${skin.icon} ${skin.name}!`, '#38bdf8');
+        playSound('buy');
+      } else {
+        const missing = skin.price - coins;
+        showShopToast(`Faltam 🪙 ${missing} moedas!`, '#ef4444');
+        playSound('error');
+        screenShake = 6;
+      }
+    }
+  }
 
   // Dimensões nativas
   const GAME_WIDTH = 360;
@@ -76,7 +212,8 @@
     READY: 0,
     PLAYING: 1,
     GAMEOVER: 2,
-    PAUSED: 3
+    PAUSED: 3,
+    SHOP: 4
   };
 
   let currentState = STATE.READY;
@@ -232,6 +369,49 @@
         gain.connect(audioCtx.destination);
         osc.start(now);
         osc.stop(now + 0.1);
+        osc.stop(now + 0.1);
+      } else if (type === 'coin') {
+        // Moeda: som metálico brilhante duplo
+        const osc1 = audioCtx.createOscillator();
+        const gain1 = audioCtx.createGain();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(987.77, now); // B5
+        osc1.frequency.setValueAtTime(1318.51, now + 0.08); // E6
+        gain1.gain.setValueAtTime(0.22, now);
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+        osc1.connect(gain1);
+        gain1.connect(audioCtx.destination);
+        osc1.start(now);
+        osc1.stop(now + 0.28);
+
+      } else if (type === 'buy') {
+        // Compra na loja: acorde triunfante de 4 notas ascendentes
+        [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + i * 0.05);
+          gain.gain.setValueAtTime(0.18, now + i * 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.25);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + i * 0.05);
+          osc.stop(now + i * 0.05 + 0.25);
+        });
+
+      } else if (type === 'error') {
+        // Erro / moedas insuficientes: tom descendente grave
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(130, now);
+        osc.frequency.setValueAtTime(80, now + 0.09);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.2);
       }
     } catch (e) {
       // Ignora pequenos erros de contexto de áudio
@@ -246,13 +426,22 @@
     soundIcon.textContent = isMuted ? '🔇' : '🔊';
   });
 
-  // Alternar skin do pássaro (permitido somente antes de iniciar a partida)
+  // Alternar skin do pássaro (cicla apenas entre skins que o jogador já desbloqueou)
   function cycleSkin() {
     if (currentState !== STATE.READY) return;
 
     initAudio();
-    currentSkinIndex = (currentSkinIndex + 1) % SKINS.length;
-    safeStorage.set('flying_skin_index', currentSkinIndex.toString());
+    let nextIndex = currentSkinIndex;
+    for (let i = 1; i <= SKINS.length; i++) {
+      const candidate = (currentSkinIndex + i) % SKINS.length;
+      if (isSkinUnlocked(SKINS[candidate].id)) {
+        nextIndex = candidate;
+        break;
+      }
+    }
+
+    currentSkinIndex = nextIndex;
+    saveInventory();
     if (skinIcon) skinIcon.textContent = SKINS[currentSkinIndex].icon;
     skinToastTimer = 90; // Exibe aviso por 1.5s
     playSound('swoosh');
@@ -267,6 +456,22 @@
         skinBtn.classList.add('hidden');
       }
     }
+
+    if (shopBtn) {
+      if (currentState === STATE.READY || currentState === STATE.GAMEOVER || currentState === STATE.SHOP) {
+        shopBtn.classList.remove('hidden');
+      } else {
+        shopBtn.classList.add('hidden');
+      }
+    }
+
+    if (pauseBtn) {
+      if (currentState === STATE.PLAYING || currentState === STATE.PAUSED) {
+        pauseBtn.classList.remove('hidden');
+      } else {
+        pauseBtn.classList.add('hidden');
+      }
+    }
   }
 
   if (skinBtn) {
@@ -276,9 +481,16 @@
     });
   }
 
-  // Estado inicial dos botões
-  updateUIState();
-
+  if (shopBtn) {
+    shopBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (currentState === STATE.SHOP) {
+        closeShop();
+      } else {
+        openShop();
+      }
+    });
+  }
   // Alternar pausa
   pauseBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -588,6 +800,26 @@
       }
     },
 
+    drawSkin(skinId) {
+      if (skinId === 'aviator') {
+        this.drawAviatorSkin();
+      } else if (skinId === 'gentleman') {
+        this.drawGentlemanSkin();
+      } else if (skinId === 'bat') {
+        this.drawBatSkin();
+      } else if (skinId === 'cyber') {
+        this.drawCyberSkin();
+      } else if (skinId === 'king') {
+        this.drawKingSkin();
+      } else if (skinId === 'phoenix') {
+        this.drawPhoenixSkin();
+      } else if (skinId === 'cosmic') {
+        this.drawCosmicSkin();
+      } else {
+        this.drawClassicHDSkin();
+      }
+    },
+
     draw() {
       ctx.save();
       const drawY = currentState === STATE.READY ? (this.y + this.hoverOffset) : this.y;
@@ -600,19 +832,481 @@
       ctx.ellipse(0, 16, 14, 5, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      const skinId = SKINS[currentSkinIndex].id;
-
-      if (skinId === 'aviator') {
-        this.drawAviatorSkin();
-      } else if (skinId === 'cyber') {
-        this.drawCyberSkin();
-      } else if (skinId === 'phoenix') {
-        this.drawPhoenixSkin();
-      } else {
-        this.drawClassicHDSkin();
-      }
+      this.drawSkin(SKINS[currentSkinIndex].id);
 
       ctx.restore();
+    },
+    // --- SKIN: LORDE CARTOLA (Penas safira, cartola de feltro, monóculo e gravata borboleta) ---
+    drawGentlemanSkin() {
+      // Penas da cauda nobre
+      ctx.fillStyle = '#1e3a8a';
+      ctx.beginPath();
+      ctx.moveTo(-13, -2);
+      ctx.lineTo(-24, -6);
+      ctx.lineTo(-20, 2);
+      ctx.lineTo(-24, 8);
+      ctx.lineTo(-12, 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // Corpo azul safira com iluminação aristocrática
+      const bodyGrad = ctx.createRadialGradient(-3, -3, 2, 0, 0, 18);
+      bodyGrad.addColorStop(0, '#93c5fd');
+      bodyGrad.addColorStop(0.35, '#3b82f6');
+      bodyGrad.addColorStop(0.8, '#1d4ed8');
+      bodyGrad.addColorStop(1, '#1e3a8a');
+
+      ctx.fillStyle = bodyGrad;
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 16.5, 12.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Peitoral elegante / Camisa branca de smoking
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.ellipse(-1, 4, 10, 6.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Gravata borboleta vermelha escarlate
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.moveTo(3, 4);
+      ctx.lineTo(8, 2);
+      ctx.lineTo(8, 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(3, 4);
+      ctx.lineTo(-2, 2);
+      ctx.lineTo(-2, 7);
+      ctx.closePath();
+      ctx.fill();
+      // Nó da gravata
+      ctx.fillStyle = '#991b1b';
+      ctx.beginPath();
+      ctx.arc(3, 4.5, 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Olho com Monóculo de Ouro
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.ellipse(7, -4, 6.5, 7.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Pupila expressiva
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(8.5, -4, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Brilho do olho
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(7.5, -5.5, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Aro do Monóculo Dourado com reflexo de vidro
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(7, -4, 7, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Correntinha do monóculo
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(13, -1);
+      ctx.quadraticCurveTo(15, 6, 9, 8);
+      ctx.stroke();
+
+      // Cartola estilosa sobre a cabeça
+      // Aba da cartola
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.ellipse(-4, -12, 12, 3.5, -0.1, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Copa da cartola
+      const hatGrad = ctx.createLinearGradient(-10, -25, 2, -12);
+      hatGrad.addColorStop(0, '#334155');
+      hatGrad.addColorStop(0.5, '#1e293b');
+      hatGrad.addColorStop(1, '#0f172a');
+      ctx.fillStyle = hatGrad;
+      ctx.beginPath();
+      ctx.rect(-10, -25, 12, 13);
+      ctx.fill();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-10, -25, 12, 13);
+
+      // Fita vermelha de cetim na cartola
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(-10, -16, 12, 3.5);
+
+      // Fivela dourada
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-6, -16, 4, 3.5);
+
+      // Bico clássico
+      ctx.fillStyle = '#f97316';
+      ctx.strokeStyle = '#9a3412';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(9, -1);
+      ctx.lineTo(20, 3.5);
+      ctx.lineTo(9, 7.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Asa real
+      this.drawModernWing('#2563eb', '#1e3a8a', '#0f172a');
+    },
+
+    // --- SKIN: PÁSSARO MORCEGO (Vampírico, orelhas pontudas, presas sutis e asas de couro) ---
+    drawBatSkin() {
+      // Penas da cauda sombria
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.moveTo(-13, -2);
+      ctx.lineTo(-24, -6);
+      ctx.lineTo(-19, 2);
+      ctx.lineTo(-24, 8);
+      ctx.lineTo(-12, 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // Orelhas de morcego pontiagudas
+      ctx.fillStyle = '#1e1b4b';
+      ctx.strokeStyle = '#09071b';
+      ctx.lineWidth = 1.5;
+      // Orelha esquerda
+      ctx.beginPath();
+      ctx.moveTo(-12, -9);
+      ctx.lineTo(-15, -21);
+      ctx.lineTo(-7, -13);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Orelha direita
+      ctx.beginPath();
+      ctx.moveTo(-4, -11);
+      ctx.lineTo(-2, -22);
+      ctx.lineTo(3, -11);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Interior rosado/roxo da orelha
+      ctx.fillStyle = '#c084fc';
+      ctx.beginPath();
+      ctx.moveTo(-12, -11);
+      ctx.lineTo(-14, -18);
+      ctx.lineTo(-8, -13);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-3, -12);
+      ctx.lineTo(-2, -19);
+      ctx.lineTo(1, -12);
+      ctx.closePath();
+      ctx.fill();
+
+      // Corpo com gradiente de meia-noite
+      const batGrad = ctx.createRadialGradient(-3, -3, 2, 0, 0, 18);
+      batGrad.addColorStop(0, '#64748b');
+      batGrad.addColorStop(0.35, '#334155');
+      batGrad.addColorStop(0.75, '#1e1b4b');
+      batGrad.addColorStop(1, '#09071b');
+
+      ctx.fillStyle = batGrad;
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 16.5, 12.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Barriga cinza fumaça
+      ctx.fillStyle = '#334155';
+      ctx.beginPath();
+      ctx.ellipse(-2, 3.5, 10, 6.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Olhos Carmesim Brilhantes (Olhos de vampiro)
+      ctx.fillStyle = '#fee2e2';
+      ctx.strokeStyle = '#7f1d1d';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.ellipse(7, -4, 6.5, 7.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Pupila vermelha luminosa
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(8.5, -4, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#7f1d1d';
+      ctx.beginPath();
+      ctx.arc(8.8, -4, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Brilho agudo
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(7.5, -5.5, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bico escuro afiado
+      ctx.fillStyle = '#475569';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(9, -1);
+      ctx.lineTo(21, 3.5);
+      ctx.lineTo(9, 7.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Presinhas vampíricas brancas
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(11, 4.5);
+      ctx.lineTo(13, 8);
+      ctx.lineTo(14, 4.5);
+      ctx.closePath();
+      ctx.fill();
+
+      // Asa de couro recortada com membrana roxa
+      this.drawModernWing('#6b21a8', '#2e1065', '#a855f7');
+    },
+
+    // --- SKIN: REI DOURADO (Plumagem branca nobre, manto real carmim e coroa de ouro maciço com rubi) ---
+    drawKingSkin() {
+      // Penas da cauda imperial
+      ctx.fillStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.moveTo(-13, -2);
+      ctx.lineTo(-24, -6);
+      ctx.lineTo(-20, 2);
+      ctx.lineTo(-24, 8);
+      ctx.lineTo(-12, 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // Manto real carmim por trás do pescoço
+      ctx.fillStyle = '#b91c1c';
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(-10, -5);
+      ctx.quadraticCurveTo(-18, 5, -12, 14);
+      ctx.lineTo(-6, 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Corpo branco perolado imperial
+      const kingGrad = ctx.createRadialGradient(-3, -3, 2, 0, 0, 18);
+      kingGrad.addColorStop(0, '#ffffff');
+      kingGrad.addColorStop(0.4, '#f8fafc');
+      kingGrad.addColorStop(0.8, '#e2e8f0');
+      kingGrad.addColorStop(1, '#94a3b8');
+
+      ctx.fillStyle = kingGrad;
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 16.5, 12.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Barriga de arminho com pontinhos nobres
+      ctx.fillStyle = '#f1f5f9';
+      ctx.beginPath();
+      ctx.ellipse(-2, 3.5, 11, 7.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Olho confiante régio
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.ellipse(7, -4, 6.5, 7.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Pupila safira régia
+      ctx.fillStyle = '#1d4ed8';
+      ctx.beginPath();
+      ctx.arc(8.5, -4, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(7.5, -5.5, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bico Dourado Polido
+      const beakGrad = ctx.createLinearGradient(9, -1, 21, 7);
+      beakGrad.addColorStop(0, '#fef08a');
+      beakGrad.addColorStop(0.5, '#f59e0b');
+      beakGrad.addColorStop(1, '#b45309');
+      ctx.fillStyle = beakGrad;
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(9, -1);
+      ctx.lineTo(21, 3.5);
+      ctx.lineTo(9, 7.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Coroa de Ouro com 3 pontas e rubi central
+      const crownGrad = ctx.createLinearGradient(-8, -24, 6, -11);
+      crownGrad.addColorStop(0, '#fef08a');
+      crownGrad.addColorStop(0.5, '#f59e0b');
+      crownGrad.addColorStop(1, '#d97706');
+      ctx.fillStyle = crownGrad;
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 1.8;
+
+      ctx.beginPath();
+      ctx.moveTo(-8, -12);
+      ctx.lineTo(-8, -20);
+      ctx.lineTo(-4, -15);
+      ctx.lineTo(0, -23); // Ponta central mais alta
+      ctx.lineTo(4, -15);
+      ctx.lineTo(8, -20);
+      ctx.lineTo(8, -12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Bolinhas de pérola nas pontas da coroa
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(-8, -20, 1.8, 0, Math.PI * 2);
+      ctx.arc(0, -23, 2.2, 0, Math.PI * 2);
+      ctx.arc(8, -20, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rubi reluzente incrustado no centro da coroa
+      ctx.fillStyle = '#ef4444';
+      ctx.strokeStyle = '#991b1b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, -15.5, 2.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(-0.6, -16.2, 0.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Asa Dourada
+      this.drawModernWing('#fbbf24', '#d97706', '#78350f');
+    },
+
+    // --- SKIN: GALÁCTICO (Nebulosa cósmica, auréola orbital e poeira estelar) ---
+    drawCosmicSkin() {
+      // Penas da cauda de poeira estelar
+      ctx.fillStyle = '#8b5cf6';
+      ctx.beginPath();
+      ctx.moveTo(-13, -2);
+      ctx.lineTo(-24, -6);
+      ctx.lineTo(-19, 2);
+      ctx.lineTo(-24, 8);
+      ctx.lineTo(-12, 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // Auréola orbital estelar inclinada ao redor do corpo
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.75)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 24, 8, -0.35, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Ponto de luz cintilante na órbita
+      const orbitAngle = frames * 0.1;
+      const ox = Math.cos(orbitAngle) * 23;
+      const oy = Math.sin(orbitAngle) * 7.5;
+      const rotOx = ox * Math.cos(-0.35) - oy * Math.sin(-0.35);
+      const rotOy = ox * Math.sin(-0.35) + oy * Math.cos(-0.35);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(rotOx, rotOy, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Corpo Nebulosa Cósmica
+      const cosmicGrad = ctx.createRadialGradient(-3, -3, 2, 0, 0, 18);
+      cosmicGrad.addColorStop(0, '#e879f9');
+      cosmicGrad.addColorStop(0.3, '#818cf8');
+      cosmicGrad.addColorStop(0.7, '#4f46e5');
+      cosmicGrad.addColorStop(1, '#0f172a');
+
+      ctx.fillStyle = cosmicGrad;
+      ctx.strokeStyle = '#c084fc';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 16.5, 12.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Estrelinhas cintilantes no corpo
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-6, -4, 2, 2);
+      ctx.fillRect(-2, 4, 1.5, 1.5);
+      ctx.fillRect(4, 5, 2, 2);
+
+      // Olho Cósmico Brilhante
+      ctx.fillStyle = '#e0f2fe';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.ellipse(7, -4, 6.5, 7.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Pupila com brilho estelar
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(8.5, -4, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(8.5, -4, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bico Cristalino Cósmico
+      const beakGrad = ctx.createLinearGradient(9, -1, 21, 7);
+      beakGrad.addColorStop(0, '#38bdf8');
+      beakGrad.addColorStop(0.6, '#a855f7');
+      beakGrad.addColorStop(1, '#4c1d95');
+      ctx.fillStyle = beakGrad;
+      ctx.strokeStyle = '#c084fc';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(9, -1);
+      ctx.lineTo(21, 3.5);
+      ctx.lineTo(9, 7.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Asa Galáctica
+      this.drawModernWing('#c084fc', '#4f46e5', '#38bdf8');
     },
 
     // --- SKIN 1: AVIADOR MODERNO (Óculos de aviador retrô-futurista, topete e iluminação 3D) ---
@@ -1245,9 +1939,39 @@
       }
     }
 
+    // Cálculo de Moedas ganhas no desempenho da rodada:
+    // Modo normal: 1 por ponto | Modo turbo: 2 por ponto
+    const pointMult = (currentMode === GAME_MODE.TURBO) ? 2 : 1;
+    let earned = score * pointMult;
+
+    // Bônus por novo recorde
+    let bonusRecord = 0;
+    if (isNewRecord && score > 0) {
+      bonusRecord = 5;
+    }
+
+    // Bônus por medalha conquistada
+    let bonusMedal = 0;
+    if (score >= 50) {
+      bonusMedal = 35; // Platina
+    } else if (score >= 35) {
+      bonusMedal = 20; // Ouro
+    } else if (score >= 20) {
+      bonusMedal = 10; // Prata
+    } else if (score >= 10) {
+      bonusMedal = 5;  // Bronze
+    }
+
+    lastCoinsEarned = earned + bonusRecord + bonusMedal;
+    coins += lastCoinsEarned;
+    saveInventory();
+
+    if (lastCoinsEarned > 0) {
+      setTimeout(() => playSound('coin'), 350);
+    }
+
     scoreCounterAnimation = 0;
   }
-
   function resetGame() {
     currentState = STATE.READY;
     updateUIState();
@@ -1333,7 +2057,7 @@
 
     // Título FLYING BIRD
     const pulse = Math.sin(frames * 0.08) * 3;
-    const titleY = 140 + pulse;
+    const titleY = 135 + pulse;
 
     ctx.font = '24px "Press Start 2P", monospace';
     // Sombra do título
@@ -1345,7 +2069,7 @@
 
     // Seletor / Badge da Skin Selecionada
     const skin = SKINS[currentSkinIndex];
-    const skinCardY = 295;
+    const skinCardY = 280;
     const skinCardW = 220;
     const skinCardH = 32;
     ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
@@ -1369,7 +2093,7 @@
     ctx.fillText('[S] ou Toque p/ Trocar Skin', GAME_WIDTH / 2, skinCardY + 25);
 
     // --- SELETOR DE MODOS DE JOGO (Cards lado a lado) ---
-    const modeCardY = 338;
+    const modeCardY = 322;
     const cardW = 105;
     const cardH = 46;
     const leftX = GAME_WIDTH / 2 - cardW - 5;
@@ -1430,18 +2154,36 @@
     // Dica de troca de modo
     ctx.font = '6px "Press Start 2P", monospace';
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillText('[M] ou Toque para escolher modo', GAME_WIDTH / 2, modeCardY + cardH + 11);
+    ctx.fillText('[M] ou Toque para escolher modo', GAME_WIDTH / 2, modeCardY + cardH + 10);
+
+    // --- BOTÃO DA LOJA DE SKINS & SALDO DE MOEDAS ---
+    const shopBannerY = 388;
+    const shopBannerW = 216;
+    const shopBannerH = 30;
+    ctx.save();
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.88)';
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(GAME_WIDTH / 2 - shopBannerW / 2, shopBannerY, shopBannerW, shopBannerH, 7);
+    else ctx.rect(GAME_WIDTH / 2 - shopBannerW / 2, shopBannerY, shopBannerW, shopBannerH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(`🪙 ${coins}  |  🛒 [L] LOJA DE SKINS`, GAME_WIDTH / 2, shopBannerY + 19);
+    ctx.restore();
 
     // Subtítulo / Instrução de Voo
-    ctx.font = '9.5px "Press Start 2P", monospace';
+    ctx.font = '9px "Press Start 2P", monospace';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('CLIQUE OU ESPAÇO', GAME_WIDTH / 2, 425);
-    ctx.fillText('PARA VOAR', GAME_WIDTH / 2, 442);
+    ctx.fillText('CLIQUE OU ESPAÇO PARA VOAR', GAME_WIDTH / 2, 436);
 
     // Botão visual "JOGAR"
-    const playBtnY = 458;
-    const playBtnW = 140;
-    const playBtnH = 34;
+    const playBtnY = 450;
+    const playBtnW = 136;
+    const playBtnH = 32;
     ctx.fillStyle = '#e11d48';
     ctx.fillRect(GAME_WIDTH / 2 - playBtnW / 2, playBtnY, playBtnW, playBtnH);
     ctx.strokeStyle = '#ffffff';
@@ -1449,17 +2191,16 @@
     ctx.strokeRect(GAME_WIDTH / 2 - playBtnW / 2, playBtnY, playBtnW, playBtnH);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '10px "Press Start 2P", monospace';
-    ctx.fillText('JOGAR', GAME_WIDTH / 2, playBtnY + 22);
+    ctx.font = '9.5px "Press Start 2P", monospace';
+    ctx.fillText('JOGAR', GAME_WIDTH / 2, playBtnY + 20);
 
     // Recorde Atual do modo selecionado
     ctx.font = '7.5px "Press Start 2P", monospace';
     ctx.fillStyle = '#fde047';
-    ctx.fillText(`🏆 RECORDE ${isTurbo ? 'TURBO' : 'NORMAL'}: ${getBestScore()}`, GAME_WIDTH / 2, 509);
+    ctx.fillText(`🏆 RECORDE ${isTurbo ? 'TURBO' : 'NORMAL'}: ${getBestScore()}`, GAME_WIDTH / 2, 502);
 
     ctx.restore();
   }
-
   function drawGameOverModal() {
     if (currentState !== STATE.GAMEOVER) return;
 
@@ -1476,9 +2217,9 @@
 
     // Placa de Pontuação (Scoreboard Card)
     const cardX = 35;
-    const cardY = 200;
+    const cardY = 190;
     const cardW = GAME_WIDTH - 70;
-    const cardH = 165;
+    const cardH = 175;
 
     // Fundo da placa estilo retrô
     ctx.fillStyle = '#ded895';
@@ -1527,10 +2268,15 @@
     ctx.fillText(bestScoreText, cardX + cardW - 20, cardY + 122);
 
     // Identificador do Modo jogado no Game Over
-    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.font = '7px "Press Start 2P", monospace';
     ctx.fillStyle = currentMode === GAME_MODE.TURBO ? '#ea580c' : '#15803d';
     ctx.textAlign = 'center';
-    ctx.fillText(currentMode === GAME_MODE.TURBO ? '⚡ MODO TURBO' : '🟢 MODO NORMAL', cardX + cardW / 2, cardY + cardH - 12);
+    ctx.fillText(currentMode === GAME_MODE.TURBO ? '⚡ MODO TURBO' : '🟢 MODO NORMAL', cardX + cardW / 2, cardY + cardH - 24);
+
+    // Moedas ganhas na partida e total
+    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.fillStyle = '#b45309';
+    ctx.fillText(`+${lastCoinsEarned} MOEDAS  (TOTAL: 🪙 ${coins})`, cardX + cardW / 2, cardY + cardH - 9);
 
     // Emblema "NOVO" se bateu o recorde
     if (isNewRecord) {
@@ -1542,22 +2288,40 @@
       ctx.fillText('NOVO!', cardX + cardW - 85, cardY + 94);
     }
 
+    // Botão "IR PARA A LOJA"
+    const goShopBtnY = 380;
+    const goShopBtnW = 180;
+    const goShopBtnH = 30;
+    ctx.save();
+    ctx.fillStyle = '#0284c7';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(GAME_WIDTH / 2 - goShopBtnW / 2, goShopBtnY, goShopBtnW, goShopBtnH, 6);
+    else ctx.rect(GAME_WIDTH / 2 - goShopBtnW / 2, goShopBtnY, goShopBtnW, goShopBtnH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('🛒 LOJA DE SKINS [L]', GAME_WIDTH / 2, goShopBtnY + 19);
+    ctx.restore();
+
     // Botão / Instrução de Jogar Novamente
     const canRestart = Date.now() - gameOverTime > 450;
     if (canRestart) {
       const pulse = Math.floor((frames / 20) % 2) === 0;
       if (pulse) {
         ctx.textAlign = 'center';
-        ctx.font = '9px "Press Start 2P", monospace';
+        ctx.font = '8.5px "Press Start 2P", monospace';
         ctx.fillStyle = '#ffffff';
-        ctx.fillText('CLIQUE OU ESPAÇO', GAME_WIDTH / 2, 405);
-        ctx.fillText('PARA REINICIAR', GAME_WIDTH / 2, 425);
+        ctx.fillText('CLIQUE OU ESPAÇO PARA REINICIAR', GAME_WIDTH / 2, 436);
       }
     }
 
     ctx.restore();
   }
-
   function drawMedal(x, y, pts) {
     ctx.save();
 
@@ -1801,6 +2565,249 @@
     ctx.restore();
   }
 
+  // ----------------------------------------------------
+  // TELA DA LOJA DE SKINS (STATE.SHOP)
+  // ----------------------------------------------------
+  function drawShopModal() {
+    if (currentState !== STATE.SHOP) return;
+
+    ctx.save();
+
+    // Fundo escuro semi-transparente cobrindo a tela
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    // Título Superior
+    ctx.textAlign = 'center';
+    ctx.font = '14px "Press Start 2P", monospace';
+    ctx.fillStyle = '#facc15';
+    ctx.fillText('LOJA DE SKINS', GAME_WIDTH / 2 - 18, 38);
+
+    // Botão [ ✕ ] Fechar no topo direito
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.85)';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(288, 20, 52, 26, 6);
+    else ctx.rect(288, 20, 52, 26);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('✕ SAIR', 314, 37);
+
+    // Saldo Atual de Moedas
+    const coinsBadgeY = 56;
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(GAME_WIDTH / 2 - 80, coinsBadgeY, 160, 22, 5);
+    else ctx.rect(GAME_WIDTH / 2 - 80, coinsBadgeY, 160, 22);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(`SALDO: 🪙 ${coins}`, GAME_WIDTH / 2, coinsBadgeY + 15);
+
+    // Grid 2x2 de Skins (4 por página)
+    const startIdx = shopPage * SKINS_PER_PAGE;
+    const visibleSkins = SKINS.slice(startIdx, startIdx + SKINS_PER_PAGE);
+
+    const cardW = 148;
+    const cardH = 162;
+    const colXs = [24, 188];
+    const rowYs = [88, 260];
+
+    visibleSkins.forEach((skin, i) => {
+      const skinIndex = startIdx + i;
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const cardX = colXs[col];
+      const cardY = rowYs[row];
+      const isEquipped = currentSkinIndex === skinIndex;
+      const isUnlocked = isSkinUnlocked(skin.id);
+
+      // Fundo do Card
+      ctx.save();
+      ctx.fillStyle = isEquipped ? 'rgba(6, 78, 59, 0.82)' : 'rgba(30, 41, 59, 0.85)';
+      ctx.strokeStyle = isEquipped ? '#10b981' : skin.rarityColor;
+      ctx.lineWidth = isEquipped ? 2.5 : 1.8;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(cardX, cardY, cardW, cardH, 8);
+      else ctx.rect(cardX, cardY, cardW, cardH);
+      ctx.fill();
+      ctx.stroke();
+
+      // Tag de Raridade no topo do card
+      ctx.fillStyle = skin.rarityColor;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(cardX + 8, cardY + 8, 62, 14, 4);
+      else ctx.rect(cardX + 8, cardY + 8, 62, 14);
+      ctx.fill();
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '6px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(skin.rarity.toUpperCase(), cardX + 39, cardY + 18);
+
+      // Nome da Skin
+      ctx.font = '7.5px "Press Start 2P", monospace';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(skin.name, cardX + cardW / 2, cardY + 36);
+
+      // Pré-visualização Animada do Pássaro no centro do Card
+      ctx.save();
+      const previewX = cardX + cardW / 2;
+      const previewY = cardY + 76 + Math.sin((frames + i * 15) * 0.1) * 3;
+      ctx.translate(previewX, previewY);
+
+      // Sombra do pássaro na vitrine
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.beginPath();
+      ctx.ellipse(0, 16, 12, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Renderiza a skin usando o próprio renderer do bird
+      bird.drawSkin(skin.id);
+      ctx.restore();
+
+      // Botão de Ação (Equipado / Equipar / Comprar)
+      const btnX = cardX + 10;
+      const btnY = cardY + cardH - 32;
+      const btnW = cardW - 20;
+      const btnH = 24;
+
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(btnX, btnY, btnW, btnH, 5);
+      else ctx.rect(btnX, btnY, btnW, btnH);
+
+      if (isEquipped) {
+        ctx.fillStyle = '#059669';
+        ctx.fill();
+        ctx.strokeStyle = '#34d399';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.font = '7px "Press Start 2P", monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText('✔ EM USO', btnX + btnW / 2, btnY + 15);
+      } else if (isUnlocked) {
+        ctx.fillStyle = '#0284c7';
+        ctx.fill();
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.font = '7px "Press Start 2P", monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText('EQUIPAR', btnX + btnW / 2, btnY + 15);
+      } else {
+        const canAfford = coins >= skin.price;
+        ctx.fillStyle = canAfford ? '#d97706' : '#475569';
+        ctx.fill();
+        ctx.strokeStyle = canAfford ? '#facc15' : '#64748b';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.font = '7px "Press Start 2P", monospace';
+        ctx.fillStyle = canAfford ? '#fde047' : '#94a3b8';
+        ctx.textAlign = 'center';
+        ctx.fillText(`🪙 ${skin.price}`, btnX + btnW / 2, btnY + 15);
+      }
+
+      ctx.restore();
+    });
+
+    // Barra de Navegação de Páginas
+    const navY = 432;
+    // Botão Página Anterior
+    ctx.save();
+    ctx.fillStyle = shopPage > 0 ? '#1e293b' : 'rgba(30, 41, 59, 0.4)';
+    ctx.strokeStyle = shopPage > 0 ? '#38bdf8' : '#475569';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(30, navY, 76, 26, 5);
+    else ctx.rect(30, navY, 76, 26);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.fillStyle = shopPage > 0 ? '#ffffff' : '#64748b';
+    ctx.textAlign = 'center';
+    ctx.fillText('◀ ANT', 68, navY + 16);
+
+    // Indicador Central de Página
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillStyle = '#facc15';
+    ctx.fillText(`PÁG ${shopPage + 1}/2`, GAME_WIDTH / 2, navY + 16);
+
+    // Botão Próxima Página
+    ctx.fillStyle = shopPage < 1 ? '#1e293b' : 'rgba(30, 41, 59, 0.4)';
+    ctx.strokeStyle = shopPage < 1 ? '#38bdf8' : '#475569';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(GAME_WIDTH - 106, navY, 76, 26, 5);
+    else ctx.rect(GAME_WIDTH - 106, navY, 76, 26);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.fillStyle = shopPage < 1 ? '#ffffff' : '#64748b';
+    ctx.fillText('PRÓX ▶', GAME_WIDTH - 68, navY + 16);
+    ctx.restore();
+
+    // Botão Inferior "VOLTAR AO JOGO"
+    const backBtnY = 470;
+    const backBtnW = 180;
+    const backBtnH = 32;
+    ctx.save();
+    ctx.fillStyle = '#e11d48';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(GAME_WIDTH / 2 - backBtnW / 2, backBtnY, backBtnW, backBtnH, 6);
+    else ctx.rect(GAME_WIDTH / 2 - backBtnW / 2, backBtnY, backBtnW, backBtnH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '8.5px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText('✕ VOLTAR AO JOGO', GAME_WIDTH / 2, backBtnY + 20);
+    ctx.restore();
+
+    // Notificação Toast dentro da loja (mensagens de compra/erro)
+    if (shopToastTimer > 0) {
+      ctx.save();
+      const alpha = Math.min(1, shopToastTimer / 18);
+      ctx.globalAlpha = alpha;
+
+      const toastY = 512;
+      const toastW = 240;
+      const toastH = 30;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.96)';
+      ctx.strokeStyle = shopToastColor;
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(GAME_WIDTH / 2 - toastW / 2, toastY, toastW, toastH, 6);
+      else ctx.rect(GAME_WIDTH / 2 - toastW / 2, toastY, toastW, toastH);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = '7.5px "Press Start 2P", monospace';
+      ctx.fillStyle = shopToastColor;
+      ctx.textAlign = 'center';
+      ctx.fillText(shopToastMessage, GAME_WIDTH / 2, toastY + 18);
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
   function drawPauseScreen() {
     if (currentState !== STATE.PAUSED) return;
 
@@ -1822,8 +2829,75 @@
   // ----------------------------------------------------
   // TRATAMENTO DE ENTRADAS (TOUCH / TECLADO / MOUSE)
   // ----------------------------------------------------
+  // ----------------------------------------------------
+  // TRATAMENTO DE ENTRADAS (TOUCH / TECLADO / MOUSE)
+  // ----------------------------------------------------
   function handleAction(e, isClickOnCanvas = false) {
     initAudio();
+
+    if (currentState === STATE.SHOP) {
+      if (isClickOnCanvas && e) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const clientX = (e.clientX !== undefined && e.clientX !== null) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const clientY = (e.clientY !== undefined && e.clientY !== null) ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+        const canvasX = (clientX - rect.left) * scaleX;
+        const canvasY = (clientY - rect.top) * scaleY;
+
+        // Botão [ ✕ SAIR ] no topo direito (x: 288..340, y: 20..46)
+        if (canvasX >= 280 && canvasX <= 345 && canvasY >= 18 && canvasY <= 50) {
+          closeShop();
+          return;
+        }
+
+        // Botão Inferior [ ✕ VOLTAR AO JOGO ] (x: GAME_WIDTH/2 - 90..+90, y: 468..504)
+        if (canvasX >= GAME_WIDTH / 2 - 95 && canvasX <= GAME_WIDTH / 2 + 95 && canvasY >= 465 && canvasY <= 506) {
+          closeShop();
+          return;
+        }
+
+        // Botão Navegação Anterior (x: 30..106, y: 430..460)
+        if (canvasX >= 25 && canvasX <= 110 && canvasY >= 428 && canvasY <= 462) {
+          if (shopPage > 0) {
+            shopPage--;
+            playSound('swoosh');
+          }
+          return;
+        }
+
+        // Botão Navegação Próximo (x: GAME_WIDTH - 106..-30, y: 430..460)
+        if (canvasX >= GAME_WIDTH - 110 && canvasX <= GAME_WIDTH - 25 && canvasY >= 428 && canvasY <= 462) {
+          if (shopPage < 1) {
+            shopPage++;
+            playSound('swoosh');
+          }
+          return;
+        }
+
+        // Clique nos Cards de Skins (2x2)
+        const startIdx = shopPage * SKINS_PER_PAGE;
+        const colXs = [24, 188];
+        const rowYs = [88, 260];
+        const cardW = 148;
+        const cardH = 162;
+
+        for (let i = 0; i < 4; i++) {
+          const skinIndex = startIdx + i;
+          if (skinIndex >= SKINS.length) break;
+          const col = i % 2;
+          const row = Math.floor(i / 2);
+          const cX = colXs[col];
+          const cY = rowYs[row];
+
+          if (canvasX >= cX && canvasX <= cX + cardW && canvasY >= cY && canvasY <= cY + cardH) {
+            buyOrEquipSkin(skinIndex);
+            return;
+          }
+        }
+      }
+      return;
+    }
 
     if (currentState === STATE.READY) {
       if (isClickOnCanvas && e) {
@@ -1836,21 +2910,27 @@
         const canvasX = (clientX - rect.left) * scaleX;
         const canvasY = (clientY - rect.top) * scaleY;
 
-        // Se clicou no botão/badge da skin (y: 292-330, x centralizado)
-        if (canvasY >= 292 && canvasY <= 330 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 + 115) {
+        // Se clicou no botão/badge da skin (y: 278-315, x centralizado)
+        if (canvasY >= 275 && canvasY <= 318 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 + 115) {
           cycleSkin();
           return;
         }
 
-        // Se clicou no Card Modo Normal (x: leftX a leftX+cardW, y: 335 a 390)
-        if (canvasY >= 335 && canvasY <= 390 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 - 4) {
+        // Se clicou no Card Modo Normal (x: leftX a leftX+cardW, y: 320 a 375)
+        if (canvasY >= 320 && canvasY <= 375 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 - 4) {
           setMode(GAME_MODE.NORMAL);
           return;
         }
 
-        // Se clicou no Card Modo Turbo (x: rightX a rightX+cardW, y: 335 a 390)
-        if (canvasY >= 335 && canvasY <= 390 && canvasX >= GAME_WIDTH / 2 + 4 && canvasX <= GAME_WIDTH / 2 + 115) {
+        // Se clicou no Card Modo Turbo (x: rightX a rightX+cardW, y: 320 a 375)
+        if (canvasY >= 320 && canvasY <= 375 && canvasX >= GAME_WIDTH / 2 + 4 && canvasX <= GAME_WIDTH / 2 + 115) {
           setMode(GAME_MODE.TURBO);
+          return;
+        }
+
+        // Se clicou no Banner da Loja de Skins (y: 385-422, x centralizado)
+        if (canvasY >= 385 && canvasY <= 422 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 + 115) {
+          openShop();
           return;
         }
       }
@@ -1863,6 +2943,21 @@
     } else if (currentState === STATE.GAMEOVER) {
       // Só reinicia após pequeno atraso de 400ms para evitar cliques acidentais
       if (Date.now() - gameOverTime > 400) {
+        if (isClickOnCanvas && e) {
+          const rect = canvas.getBoundingClientRect();
+          const scaleX = canvas.width / rect.width;
+          const scaleY = canvas.height / rect.height;
+          const clientX = (e.clientX !== undefined && e.clientX !== null) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+          const clientY = (e.clientY !== undefined && e.clientY !== null) ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+          const canvasX = (clientX - rect.left) * scaleX;
+          const canvasY = (clientY - rect.top) * scaleY;
+
+          // Se clicou no Botão [ 🛒 LOJA DE SKINS ] (y: 378..414, x centralizado)
+          if (canvasY >= 378 && canvasY <= 414 && canvasX >= GAME_WIDTH / 2 - 95 && canvasX <= GAME_WIDTH / 2 + 95) {
+            openShop();
+            return;
+          }
+        }
         resetGame();
       }
     }
@@ -1882,6 +2977,33 @@
       if (currentState === STATE.READY) {
         e.preventDefault();
         toggleMode();
+      }
+    } else if (e.code === 'KeyL') {
+      e.preventDefault();
+      if (currentState === STATE.SHOP) {
+        closeShop();
+      } else if (currentState === STATE.READY || currentState === STATE.GAMEOVER) {
+        openShop();
+      }
+    } else if (e.code === 'Escape') {
+      if (currentState === STATE.SHOP) {
+        e.preventDefault();
+        closeShop();
+      } else if (currentState === STATE.PLAYING || currentState === STATE.PAUSED) {
+        e.preventDefault();
+        togglePause();
+      }
+    } else if (e.code === 'ArrowLeft') {
+      if (currentState === STATE.SHOP && shopPage > 0) {
+        e.preventDefault();
+        shopPage--;
+        playSound('swoosh');
+      }
+    } else if (e.code === 'ArrowRight') {
+      if (currentState === STATE.SHOP && shopPage < 1) {
+        e.preventDefault();
+        shopPage++;
+        playSound('swoosh');
       }
     } else if (e.code === 'KeyP') {
       e.preventDefault();
@@ -1959,6 +3081,14 @@
   function updateGameLogic() {
     frames++;
 
+    // Se estiver na loja, apenas anima o pássaro e decrementa o toast
+    if (currentState === STATE.SHOP) {
+      bird.hoverOffset = Math.sin(frames * 0.1) * 6;
+      bird.flapIndex = Math.floor((frames / 7) % 3);
+      if (shopToastTimer > 0) shopToastTimer--;
+      return;
+    }
+
     // Atualização de física e lógica
     if (currentState !== STATE.PAUSED) {
       updateBackground();
@@ -2025,6 +3155,7 @@
     drawGameOverModal();
     drawPauseScreen();
     drawSkinToast();
+    drawShopModal();
   }
 
   function loop(timestamp) {
