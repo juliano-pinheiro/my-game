@@ -85,6 +85,7 @@ canvas#gameCanvas {
 }
 
 #skin-btn.hidden,
+#graphics-btn.hidden,
 #shop-btn.hidden {
   opacity: 0;
   visibility: hidden;

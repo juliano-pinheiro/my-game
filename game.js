@@ -12,10 +12,90 @@
   const soundIcon = document.getElementById('sound-icon');
   const skinBtn = document.getElementById('skin-btn');
   const skinIcon = document.getElementById('skin-icon');
+  const graphicsBtn = document.getElementById('graphics-btn');
+  const graphicsIcon = document.getElementById('graphics-icon');
   const shopBtn = document.getElementById('shop-btn');
   const shopIcon = document.getElementById('shop-icon');
   const pauseBtn = document.getElementById('pause-btn');
   const pauseIcon = document.getElementById('pause-icon');
+
+  // Dimensões lógicas nativas do jogo (todas as coordenadas usam 360x640)
+  const GAME_WIDTH = 360;
+  const GAME_HEIGHT = 640;
+  const GROUND_HEIGHT = 112;
+  const GROUND_Y = GAME_HEIGHT - GROUND_HEIGHT;
+
+  // Acesso seguro ao localStorage (evita SecurityError ao rodar por file:/// ou janelas anônimas)
+  const safeStorage = {
+    get(key, fallback = null) {
+      try {
+        return localStorage.getItem(key) ?? fallback;
+      } catch (e) {
+        return fallback;
+      }
+    },
+    set(key, val) {
+      try {
+        localStorage.setItem(key, val);
+      } catch (e) {}
+    }
+  };
+
+  // Modos Gráficos (Retrô Clássico vs HD Alta Resolução)
+  const GRAPHICS_MODE = {
+    RETRO: 'retro',
+    HD: 'hd'
+  };
+
+  let graphicsMode = safeStorage.get('flying_graphics_mode', GRAPHICS_MODE.HD);
+  if (graphicsMode !== GRAPHICS_MODE.RETRO && graphicsMode !== GRAPHICS_MODE.HD) {
+    graphicsMode = GRAPHICS_MODE.HD;
+  }
+
+  function applyGraphicsModeResolution() {
+    if (graphicsMode === GRAPHICS_MODE.HD) {
+      // Buffer 2x de alta densidade (Retina/AMOLED) para zero serrilhado
+      canvas.width = 720;
+      canvas.height = 1280;
+      ctx.imageSmoothingEnabled = true;
+      if (graphicsIcon) graphicsIcon.textContent = '✨';
+      if (graphicsBtn) graphicsBtn.title = 'Gráficos: HD (Alta Resolução)';
+    } else {
+      // Resolução nativa 1x com pixel smoothing desligado para look arcade autêntico
+      canvas.width = 360;
+      canvas.height = 640;
+      ctx.imageSmoothingEnabled = false;
+      if (graphicsIcon) graphicsIcon.textContent = '📺';
+      if (graphicsBtn) graphicsBtn.title = 'Gráficos: Retrô Clássico';
+    }
+  }
+
+  function setGraphicsMode(mode) {
+    graphicsMode = mode;
+    safeStorage.set('flying_graphics_mode', mode);
+    applyGraphicsModeResolution();
+    showToastNotification(mode === GRAPHICS_MODE.HD ? 'Gráficos: ✨ HD (Alta Resolução)' : 'Gráficos: 📺 Retrô Clássico', '#38bdf8');
+    playSound('swoosh');
+  }
+
+  function toggleGraphicsMode() {
+    setGraphicsMode(graphicsMode === GRAPHICS_MODE.HD ? GRAPHICS_MODE.RETRO : GRAPHICS_MODE.HD);
+  }
+
+  // Aplica a resolução inicial configurada (HD 720x1280 ou Retrô 360x640)
+  applyGraphicsModeResolution();
+
+  // Notificações Toast Unificadas
+  let toastMessage = '';
+  let toastTimer = 0;
+  let toastColor = '#facc15';
+
+  function showToastNotification(msg, color = '#facc15') {
+    toastMessage = msg;
+    toastColor = color;
+    toastTimer = 90;
+  }
+
   // Skins do Pássaro (8 Skins: de Comuns a Lendárias com Preços e Raridades)
   const SKINS = [
     {
@@ -92,22 +172,6 @@
     }
   ];
 
-  // Acesso seguro ao localStorage (evita SecurityError ao rodar por file:/// ou janelas anônimas)
-  const safeStorage = {
-    get(key, fallback = null) {
-      try {
-        return localStorage.getItem(key) ?? fallback;
-      } catch (e) {
-        return fallback;
-      }
-    },
-    set(key, val) {
-      try {
-        localStorage.setItem(key, val);
-      } catch (e) {}
-    }
-  };
-
   // Sistema de Economia e Inventário de Skins
   let coins = parseInt(safeStorage.get('flying_coins') || '0', 10);
   if (isNaN(coins) || coins < 0) coins = 0;
@@ -143,23 +207,15 @@
   if (isNaN(currentSkinIndex) || currentSkinIndex < 0 || currentSkinIndex >= SKINS.length || !isSkinUnlocked(SKINS[currentSkinIndex].id)) {
     currentSkinIndex = 0;
   }
-  let skinToastTimer = 0;
 
   // Estados e Navegação da Loja
   let shopPage = 0; // 0 = Pág 1 (skins 0..3), 1 = Pág 2 (skins 4..7)
   const SKINS_PER_PAGE = 4;
-  let shopToastMessage = '';
-  let shopToastTimer = 0;
-  let shopToastColor = '#facc15';
-
-  function showShopToast(msg, color = '#facc15') {
-    shopToastMessage = msg;
-    shopToastColor = color;
-    shopToastTimer = 90;
-  }
+  let confirmingSkinPurchase = null; // Índice da skin que aguarda confirmação de compra
 
   function openShop() {
     if (currentState === STATE.PLAYING) return;
+    confirmingSkinPurchase = null;
     previousState = currentState;
     currentState = STATE.SHOP;
     updateUIState();
@@ -168,12 +224,13 @@
 
   function closeShop() {
     if (currentState !== STATE.SHOP) return;
+    confirmingSkinPurchase = null;
     currentState = (previousState === STATE.GAMEOVER) ? STATE.GAMEOVER : STATE.READY;
     updateUIState();
     playSound('swoosh');
   }
 
-  function buyOrEquipSkin(skinIndex) {
+  function buyOrEquipSkin(skinIndex, forceConfirm = false) {
     if (skinIndex < 0 || skinIndex >= SKINS.length) return;
     const skin = SKINS[skinIndex];
 
@@ -181,31 +238,34 @@
       currentSkinIndex = skinIndex;
       saveInventory();
       if (skinIcon) skinIcon.textContent = skin.icon;
-      showShopToast(`Equipado: ${skin.icon} ${skin.name}`, '#34d399');
+      showToastNotification(`Equipado: ${skin.icon} ${skin.name}`, '#34d399');
       playSound('swoosh');
     } else {
-      if (coins >= skin.price) {
+      if (coins < skin.price) {
+        const missing = skin.price - coins;
+        showToastNotification(`Faltam 🪙 ${missing} moedas!`, '#ef4444');
+        playSound('error');
+        screenShake = 6;
+        return;
+      }
+
+      // Se o jogador tem saldo e ainda não confirmou, abre o modal de confirmação
+      if (!forceConfirm) {
+        confirmingSkinPurchase = skinIndex;
+        playSound('swoosh');
+      } else {
+        // Confirmação aceita: executa a compra
         coins -= skin.price;
         unlockedSkins.push(skin.id);
         currentSkinIndex = skinIndex;
         saveInventory();
+        confirmingSkinPurchase = null;
         if (skinIcon) skinIcon.textContent = skin.icon;
-        showShopToast(`Comprado: ${skin.icon} ${skin.name}!`, '#38bdf8');
+        showToastNotification(`Comprado: ${skin.icon} ${skin.name}!`, '#38bdf8');
         playSound('buy');
-      } else {
-        const missing = skin.price - coins;
-        showShopToast(`Faltam 🪙 ${missing} moedas!`, '#ef4444');
-        playSound('error');
-        screenShake = 6;
       }
     }
   }
-
-  // Dimensões nativas
-  const GAME_WIDTH = 360;
-  const GAME_HEIGHT = 640;
-  const GROUND_HEIGHT = 112;
-  const GROUND_Y = GAME_HEIGHT - GROUND_HEIGHT;
 
   // Estados do jogo
   const STATE = {
@@ -215,7 +275,6 @@
     PAUSED: 3,
     SHOP: 4
   };
-
   let currentState = STATE.READY;
   let previousState = STATE.READY;
   let frames = 0;
@@ -443,7 +502,7 @@
     currentSkinIndex = nextIndex;
     saveInventory();
     if (skinIcon) skinIcon.textContent = SKINS[currentSkinIndex].icon;
-    skinToastTimer = 90; // Exibe aviso por 1.5s
+    showToastNotification(`Skin: ${SKINS[currentSkinIndex].icon} ${SKINS[currentSkinIndex].name}`, '#facc15');
     playSound('swoosh');
   }
 
@@ -454,6 +513,14 @@
         skinBtn.classList.remove('hidden');
       } else {
         skinBtn.classList.add('hidden');
+      }
+    }
+
+    if (graphicsBtn) {
+      if (currentState !== STATE.PLAYING) {
+        graphicsBtn.classList.remove('hidden');
+      } else {
+        graphicsBtn.classList.add('hidden');
       }
     }
 
@@ -478,6 +545,13 @@
     skinBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       cycleSkin();
+    });
+  }
+
+  if (graphicsBtn) {
+    graphicsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleGraphicsMode();
     });
   }
 
@@ -599,99 +673,245 @@
   }
 
   function drawSkyAndCity() {
-    // Gradiente do Céu Flappy
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    skyGrad.addColorStop(0, '#4ec0ca');
-    skyGrad.addColorStop(0.75, '#85d9e3');
-    skyGrad.addColorStop(1, '#bcf2f7');
-    ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, GAME_WIDTH, GROUND_Y);
+    if (graphicsMode === GRAPHICS_MODE.HD) {
+      // Céu HD: Gradiente vibrante suave com atmosfera
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      skyGrad.addColorStop(0, '#2563eb');
+      skyGrad.addColorStop(0.35, '#38bdf8');
+      skyGrad.addColorStop(0.7, '#7dd3fc');
+      skyGrad.addColorStop(1, '#fef08a');
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, GAME_WIDTH, GROUND_Y);
 
-    // Desenhar Nuvens
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-    clouds.forEach(c => {
+      // Sol e Raios de Luz (God Rays)
       ctx.save();
-      ctx.translate(c.x, c.y);
-      ctx.scale(c.scale, c.scale);
+      const sunGrad = ctx.createRadialGradient(290, 65, 5, 290, 65, 75);
+      sunGrad.addColorStop(0, '#ffffff');
+      sunGrad.addColorStop(0.2, '#fef08a');
+      sunGrad.addColorStop(0.6, 'rgba(253, 224, 71, 0.35)');
+      sunGrad.addColorStop(1, 'rgba(253, 224, 71, 0)');
+      ctx.fillStyle = sunGrad;
       ctx.beginPath();
-      ctx.arc(0, 0, 20, 0, Math.PI * 2);
-      ctx.arc(18, -8, 22, 0, Math.PI * 2);
-      ctx.arc(36, 0, 18, 0, Math.PI * 2);
-      ctx.arc(18, 10, 16, 0, Math.PI * 2);
+      ctx.arc(290, 65, 75, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
-    });
 
-    // Silhueta dos Prédios/Cidade ao fundo
-    ctx.save();
-    ctx.fillStyle = '#9fe3ba';
-    for (let loop = 0; loop < 2; loop++) {
-      const offsetX = loop * 360 - cityScrollOffset;
-      citySilhouettes.forEach(b => {
-        const bx = offsetX + b.x;
-        if (bx + b.w > -10 && bx < GAME_WIDTH + 10) {
-          ctx.fillRect(bx, GROUND_Y - b.h, b.w, b.h);
-          // Janelas retro simples
-          ctx.fillStyle = '#b7edd0';
-          for (let wy = GROUND_Y - b.h + 8; wy < GROUND_Y - 12; wy += 14) {
-            for (let wx = bx + 6; wx < bx + b.w - 8; wx += 10) {
-              ctx.fillRect(wx, wy, 4, 6);
+      // Raios de sol translúcidos
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
+      [[-0.4, 0.25], [-0.1, 0.55], [0.2, 0.85]].forEach(([a1, a2]) => {
+        ctx.beginPath();
+        ctx.moveTo(290, 65);
+        ctx.lineTo(290 + Math.cos(a1) * 600, 65 + Math.sin(a1) * 600);
+        ctx.lineTo(290 + Math.cos(a2) * 600, 65 + Math.sin(a2) * 600);
+        ctx.closePath();
+        ctx.fill();
+      });
+      ctx.restore();
+
+      // Nuvens HD com sombreado suave volumétrico
+      clouds.forEach(c => {
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.scale(c.scale, c.scale);
+
+        // Sombra suave da nuvem
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.08)';
+        ctx.beginPath();
+        ctx.arc(0, 4, 20, 0, Math.PI * 2);
+        ctx.arc(18, -4, 22, 0, Math.PI * 2);
+        ctx.arc(36, 4, 18, 0, Math.PI * 2);
+        ctx.arc(18, 14, 16, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Corpo da nuvem
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, 0, 20, 0, Math.PI * 2);
+        ctx.arc(18, -8, 22, 0, Math.PI * 2);
+        ctx.arc(36, 0, 18, 0, Math.PI * 2);
+        ctx.arc(18, 10, 16, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Brilho no topo
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.beginPath();
+        ctx.arc(18, -10, 15, -Math.PI * 0.8, -Math.PI * 0.2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Silhueta dos Prédios com profundidade HD
+      ctx.save();
+      for (let loop = 0; loop < 2; loop++) {
+        const offsetX = loop * 360 - cityScrollOffset;
+        citySilhouettes.forEach(b => {
+          const bx = offsetX + b.x;
+          if (bx + b.w > -10 && bx < GAME_WIDTH + 10) {
+            const bGrad = ctx.createLinearGradient(bx, GROUND_Y - b.h, bx, GROUND_Y);
+            bGrad.addColorStop(0, '#6ee7b7');
+            bGrad.addColorStop(1, '#059669');
+            ctx.fillStyle = bGrad;
+            ctx.fillRect(bx, GROUND_Y - b.h, b.w, b.h);
+
+            // Janelas brilhantes
+            ctx.fillStyle = '#fef08a';
+            for (let wy = GROUND_Y - b.h + 8; wy < GROUND_Y - 12; wy += 14) {
+              for (let wx = bx + 6; wx < bx + b.w - 8; wx += 10) {
+                ctx.fillRect(wx, wy, 4, 6);
+              }
             }
           }
-          ctx.fillStyle = '#9fe3ba';
-        }
-      });
-    }
+        });
+      }
 
-    // Arbustos e colinas verdes suaves à frente da cidade
-    ctx.fillStyle = '#79d19a';
-    for (let x = -30; x < GAME_WIDTH + 40; x += 36) {
-      ctx.beginPath();
-      ctx.arc(x, GROUND_Y + 5, 26, 0, Math.PI * 2);
-      ctx.fill();
+      // Arbustos suaves
+      for (let x = -30; x < GAME_WIDTH + 40; x += 36) {
+        const bushGrad = ctx.createRadialGradient(x, GROUND_Y + 5, 2, x, GROUND_Y + 5, 26);
+        bushGrad.addColorStop(0, '#86efac');
+        bushGrad.addColorStop(1, '#16a34a');
+        ctx.fillStyle = bushGrad;
+        ctx.beginPath();
+        ctx.arc(x, GROUND_Y + 5, 26, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+    } else {
+      // Céu Retrô Clássico (Flappy Original Arcade)
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      skyGrad.addColorStop(0, '#4ec0ca');
+      skyGrad.addColorStop(0.75, '#85d9e3');
+      skyGrad.addColorStop(1, '#bcf2f7');
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, GAME_WIDTH, GROUND_Y);
+
+      // Nuvens Retrô Planas
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      clouds.forEach(c => {
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.scale(c.scale, c.scale);
+        ctx.beginPath();
+        ctx.arc(0, 0, 20, 0, Math.PI * 2);
+        ctx.arc(18, -8, 22, 0, Math.PI * 2);
+        ctx.arc(36, 0, 18, 0, Math.PI * 2);
+        ctx.arc(18, 10, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Silhueta dos Prédios Retrô Verde Menta
+      ctx.save();
+      ctx.fillStyle = '#9fe3ba';
+      for (let loop = 0; loop < 2; loop++) {
+        const offsetX = loop * 360 - cityScrollOffset;
+        citySilhouettes.forEach(b => {
+          const bx = offsetX + b.x;
+          if (bx + b.w > -10 && bx < GAME_WIDTH + 10) {
+            ctx.fillRect(bx, GROUND_Y - b.h, b.w, b.h);
+            ctx.fillStyle = '#b7edd0';
+            for (let wy = GROUND_Y - b.h + 8; wy < GROUND_Y - 12; wy += 14) {
+              for (let wx = bx + 6; wx < bx + b.w - 8; wx += 10) {
+                ctx.fillRect(wx, wy, 4, 6);
+              }
+            }
+            ctx.fillStyle = '#9fe3ba';
+          }
+        });
+      }
+
+      ctx.fillStyle = '#79d19a';
+      for (let x = -30; x < GAME_WIDTH + 40; x += 36) {
+        ctx.beginPath();
+        ctx.arc(x, GROUND_Y + 5, 26, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
     }
-    ctx.restore();
   }
 
   function drawGround() {
-    // Faixa de grama superior
-    ctx.fillStyle = '#73bf2e';
-    ctx.fillRect(0, GROUND_Y, GAME_WIDTH, 14);
+    if (graphicsMode === GRAPHICS_MODE.HD) {
+      // Faixa de grama HD com folhagens orgânicas
+      const grassGrad = ctx.createLinearGradient(0, GROUND_Y, 0, GROUND_Y + 16);
+      grassGrad.addColorStop(0, '#86efac');
+      grassGrad.addColorStop(0.3, '#4ade80');
+      grassGrad.addColorStop(1, '#16a34a');
+      ctx.fillStyle = grassGrad;
+      ctx.fillRect(0, GROUND_Y, GAME_WIDTH, 16);
 
-    // Borda superior da grama em relevo
-    ctx.fillStyle = '#8ce036';
-    ctx.fillRect(0, GROUND_Y, GAME_WIDTH, 4);
+      // Folhinhas de grama no topo
+      ctx.fillStyle = '#86efac';
+      for (let gx = 0; gx < GAME_WIDTH; gx += 8) {
+        const bladeHeight = (gx % 16 === 0) ? 4 : 2.5;
+        ctx.beginPath();
+        ctx.moveTo(gx, GROUND_Y);
+        ctx.lineTo(gx + 3, GROUND_Y - bladeHeight);
+        ctx.lineTo(gx + 6, GROUND_Y);
+        ctx.closePath();
+        ctx.fill();
+      }
 
-    // Linha escura de divisão
-    ctx.fillStyle = '#558022';
-    ctx.fillRect(0, GROUND_Y + 14, GAME_WIDTH, 3);
+      // Sombra suave sob a grama
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+      ctx.fillRect(0, GROUND_Y + 16, GAME_WIDTH, 4);
 
-    // Terra / Chão com listras diagonais clássicas
-    ctx.fillStyle = '#ded895';
-    ctx.fillRect(0, GROUND_Y + 17, GAME_WIDTH, GROUND_HEIGHT - 17);
+      // Terra HD
+      const dirtGrad = ctx.createLinearGradient(0, GROUND_Y + 20, 0, GAME_HEIGHT);
+      dirtGrad.addColorStop(0, '#eab308');
+      dirtGrad.addColorStop(0.4, '#ca8a04');
+      dirtGrad.addColorStop(1, '#854d0e');
+      ctx.fillStyle = dirtGrad;
+      ctx.fillRect(0, GROUND_Y + 20, GAME_WIDTH, GROUND_HEIGHT - 20);
 
-    // Listras decorativas diagonais em movimento
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, GROUND_Y + 17, GAME_WIDTH, GROUND_HEIGHT - 17);
-    ctx.clip();
-
-    ctx.fillStyle = '#cbb870';
-    for (let x = -24; x < GAME_WIDTH + 48; x += 18) {
-      const currentX = x - groundScrollOffset;
+      // Textura estilizada em movimento
+      ctx.save();
       ctx.beginPath();
-      ctx.moveTo(currentX, GROUND_Y + 17);
-      ctx.lineTo(currentX + 10, GROUND_Y + 17);
-      ctx.lineTo(currentX - 6, GAME_HEIGHT);
-      ctx.lineTo(currentX - 16, GAME_HEIGHT);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
+      ctx.rect(0, GROUND_Y + 20, GAME_WIDTH, GROUND_HEIGHT - 20);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+      for (let x = -24; x < GAME_WIDTH + 48; x += 18) {
+        const currentX = x - groundScrollOffset;
+        ctx.beginPath();
+        ctx.moveTo(currentX, GROUND_Y + 20);
+        ctx.lineTo(currentX + 8, GROUND_Y + 20);
+        ctx.lineTo(currentX - 6, GAME_HEIGHT);
+        ctx.lineTo(currentX - 14, GAME_HEIGHT);
+        ctx.fill();
+      }
+      ctx.restore();
 
-  // ----------------------------------------------------
-  // PÁSSARO (BIRD)
-  // ----------------------------------------------------
+    } else {
+      // Grama e Chão Retrô Clássico
+      ctx.fillStyle = '#73bf2e';
+      ctx.fillRect(0, GROUND_Y, GAME_WIDTH, 14);
+
+      ctx.fillStyle = '#8ce036';
+      ctx.fillRect(0, GROUND_Y, GAME_WIDTH, 4);
+
+      ctx.fillStyle = '#558022';
+      ctx.fillRect(0, GROUND_Y + 14, GAME_WIDTH, 3);
+
+      ctx.fillStyle = '#ded895';
+      ctx.fillRect(0, GROUND_Y + 17, GAME_WIDTH, GROUND_HEIGHT - 17);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, GROUND_Y + 17, GAME_WIDTH, GROUND_HEIGHT - 17);
+      ctx.clip();
+
+      ctx.fillStyle = '#cbb870';
+      for (let x = -24; x < GAME_WIDTH + 48; x += 18) {
+        const currentX = x - groundScrollOffset;
+        ctx.beginPath();
+        ctx.moveTo(currentX, GROUND_Y + 17);
+        ctx.lineTo(currentX + 10, GROUND_Y + 17);
+        ctx.lineTo(currentX - 6, GAME_HEIGHT);
+        ctx.lineTo(currentX - 16, GAME_HEIGHT);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
   const bird = {
     x: 80,
     y: 260,
@@ -1836,46 +2056,88 @@
 
     ctx.save();
 
-    // Gradiente do corpo do cano
-    const pipeGrad = ctx.createLinearGradient(x, 0, x + width, 0);
-    pipeGrad.addColorStop(0, '#558022');
-    pipeGrad.addColorStop(0.18, '#8ce036');
-    pipeGrad.addColorStop(0.4, '#73bf2e');
-    pipeGrad.addColorStop(0.85, '#558022');
-    pipeGrad.addColorStop(1, '#2e4314');
+    if (graphicsMode === GRAPHICS_MODE.HD) {
+      // Canos HD Metálicos com Iluminação Cilíndrica e Especular
+      const pipeGrad = ctx.createLinearGradient(x, 0, x + width, 0);
+      pipeGrad.addColorStop(0, '#166534');
+      pipeGrad.addColorStop(0.18, '#86efac');
+      pipeGrad.addColorStop(0.42, '#22c55e');
+      pipeGrad.addColorStop(0.85, '#15803d');
+      pipeGrad.addColorStop(1, '#14532d');
 
-    ctx.fillStyle = pipeGrad;
-    ctx.strokeStyle = '#1e290b';
-    ctx.lineWidth = 2.5;
+      ctx.fillStyle = pipeGrad;
+      ctx.strokeStyle = '#052e16';
+      ctx.lineWidth = 2.2;
 
-    // Corpo
-    ctx.fillRect(x, y, width, height);
-    ctx.strokeRect(x, y, width, height);
+      // Corpo
+      ctx.fillRect(x, y, width, height);
+      ctx.strokeRect(x, y, width, height);
 
-    // Tampa / Borda do cano
-    const capX = x - overhang;
-    const capW = width + overhang * 2;
-    const capY = isTop ? (y + height - capH) : y;
+      // Tampa / Borda do cano
+      const capX = x - overhang;
+      const capW = width + overhang * 2;
+      const capY = isTop ? (y + height - capH) : y;
 
-    const capGrad = ctx.createLinearGradient(capX, 0, capX + capW, 0);
-    capGrad.addColorStop(0, '#558022');
-    capGrad.addColorStop(0.18, '#a6f74a');
-    capGrad.addColorStop(0.4, '#73bf2e');
-    capGrad.addColorStop(0.85, '#558022');
-    capGrad.addColorStop(1, '#2e4314');
+      const capGrad = ctx.createLinearGradient(capX, 0, capX + capW, 0);
+      capGrad.addColorStop(0, '#166534');
+      capGrad.addColorStop(0.18, '#bbf7d0');
+      capGrad.addColorStop(0.42, '#22c55e');
+      capGrad.addColorStop(0.85, '#15803d');
+      capGrad.addColorStop(1, '#14532d');
 
-    ctx.fillStyle = capGrad;
-    ctx.fillRect(capX, capY, capW, capH);
-    ctx.strokeRect(capX, capY, capW, capH);
+      ctx.fillStyle = capGrad;
+      ctx.fillRect(capX, capY, capW, capH);
+      ctx.strokeRect(capX, capY, capW, capH);
 
-    // Linha de brilho branco especular retro no topo/borda
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-    ctx.fillRect(capX + 4, capY + 3, 5, capH - 6);
+      // Sombra projetada pelo anel/tampa sobre a haste do cano
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+      if (isTop) {
+        ctx.fillRect(x, capY - 6, width, 6);
+      } else {
+        ctx.fillRect(x, capY + capH, width, 6);
+      }
+
+      // Brilho especular sutil na borda da tampa
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.fillRect(capX + 4, capY + 3, 5, capH - 6);
+
+    } else {
+      // Canos Retrô Clássicos (Flappy Original Arcade)
+      const pipeGrad = ctx.createLinearGradient(x, 0, x + width, 0);
+      pipeGrad.addColorStop(0, '#558022');
+      pipeGrad.addColorStop(0.18, '#8ce036');
+      pipeGrad.addColorStop(0.4, '#73bf2e');
+      pipeGrad.addColorStop(0.85, '#558022');
+      pipeGrad.addColorStop(1, '#2e4314');
+
+      ctx.fillStyle = pipeGrad;
+      ctx.strokeStyle = '#1e290b';
+      ctx.lineWidth = 2.5;
+
+      ctx.fillRect(x, y, width, height);
+      ctx.strokeRect(x, y, width, height);
+
+      const capX = x - overhang;
+      const capW = width + overhang * 2;
+      const capY = isTop ? (y + height - capH) : y;
+
+      const capGrad = ctx.createLinearGradient(capX, 0, capX + capW, 0);
+      capGrad.addColorStop(0, '#558022');
+      capGrad.addColorStop(0.18, '#a6f74a');
+      capGrad.addColorStop(0.4, '#73bf2e');
+      capGrad.addColorStop(0.85, '#558022');
+      capGrad.addColorStop(1, '#2e4314');
+
+      ctx.fillStyle = capGrad;
+      ctx.fillRect(capX, capY, capW, capH);
+      ctx.strokeRect(capX, capY, capW, capH);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.fillRect(capX + 4, capY + 3, 5, capH - 6);
+    }
 
     ctx.restore();
   }
-
-  // Detecção de colisão justa e precisa (hitbox circular do pássaro contra caixas)
   function checkCollision(b, p) {
     const margin = 2; // Margem de tolerância para jogabilidade justa
     const bx = b.x;
@@ -2057,7 +2319,7 @@
 
     // Título FLYING BIRD
     const pulse = Math.sin(frames * 0.08) * 3;
-    const titleY = 135 + pulse;
+    const titleY = 142 + pulse;
 
     ctx.font = '24px "Press Start 2P", monospace';
     // Sombra do título
@@ -2069,7 +2331,7 @@
 
     // Seletor / Badge da Skin Selecionada
     const skin = SKINS[currentSkinIndex];
-    const skinCardY = 280;
+    const skinCardY = 285;
     const skinCardW = 220;
     const skinCardH = 32;
     ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
@@ -2093,7 +2355,7 @@
     ctx.fillText('[S] ou Toque p/ Trocar Skin', GAME_WIDTH / 2, skinCardY + 25);
 
     // --- SELETOR DE MODOS DE JOGO (Cards lado a lado) ---
-    const modeCardY = 322;
+    const modeCardY = 328;
     const cardW = 105;
     const cardH = 46;
     const leftX = GAME_WIDTH / 2 - cardW - 5;
@@ -2156,34 +2418,15 @@
     ctx.fillStyle = '#cbd5e1';
     ctx.fillText('[M] ou Toque para escolher modo', GAME_WIDTH / 2, modeCardY + cardH + 10);
 
-    // --- BOTÃO DA LOJA DE SKINS & SALDO DE MOEDAS ---
-    const shopBannerY = 388;
-    const shopBannerW = 216;
-    const shopBannerH = 30;
-    ctx.save();
-    ctx.fillStyle = 'rgba(30, 41, 59, 0.88)';
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(GAME_WIDTH / 2 - shopBannerW / 2, shopBannerY, shopBannerW, shopBannerH, 7);
-    else ctx.rect(GAME_WIDTH / 2 - shopBannerW / 2, shopBannerY, shopBannerW, shopBannerH);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.font = '7.5px "Press Start 2P", monospace';
-    ctx.fillStyle = '#fde047';
-    ctx.fillText(`🪙 ${coins}  |  🛒 [L] LOJA DE SKINS`, GAME_WIDTH / 2, shopBannerY + 19);
-    ctx.restore();
-
     // Subtítulo / Instrução de Voo
     ctx.font = '9px "Press Start 2P", monospace';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('CLIQUE OU ESPAÇO PARA VOAR', GAME_WIDTH / 2, 436);
+    ctx.fillText('CLIQUE OU ESPAÇO PARA JOGAR', GAME_WIDTH / 2, 418);
 
     // Botão visual "JOGAR"
-    const playBtnY = 450;
-    const playBtnW = 136;
-    const playBtnH = 32;
+    const playBtnY = 438;
+    const playBtnW = 140;
+    const playBtnH = 34;
     ctx.fillStyle = '#e11d48';
     ctx.fillRect(GAME_WIDTH / 2 - playBtnW / 2, playBtnY, playBtnW, playBtnH);
     ctx.strokeStyle = '#ffffff';
@@ -2191,13 +2434,13 @@
     ctx.strokeRect(GAME_WIDTH / 2 - playBtnW / 2, playBtnY, playBtnW, playBtnH);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '9.5px "Press Start 2P", monospace';
-    ctx.fillText('JOGAR', GAME_WIDTH / 2, playBtnY + 20);
+    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.fillText('JOGAR', GAME_WIDTH / 2, playBtnY + 22);
 
     // Recorde Atual do modo selecionado
     ctx.font = '7.5px "Press Start 2P", monospace';
     ctx.fillStyle = '#fde047';
-    ctx.fillText(`🏆 RECORDE ${isTurbo ? 'TURBO' : 'NORMAL'}: ${getBestScore()}`, GAME_WIDTH / 2, 502);
+    ctx.fillText(`🏆 RECORDE ${isTurbo ? 'TURBO' : 'NORMAL'}: ${getBestScore()}`, GAME_WIDTH / 2, 495);
 
     ctx.restore();
   }
@@ -2568,6 +2811,9 @@
   // ----------------------------------------------------
   // TELA DA LOJA DE SKINS (STATE.SHOP)
   // ----------------------------------------------------
+  // ----------------------------------------------------
+  // TELA DA LOJA DE SKINS (STATE.SHOP) COM CONFIRMAÇÃO
+  // ----------------------------------------------------
   function drawShopModal() {
     if (currentState !== STATE.SHOP) return;
 
@@ -2781,30 +3027,118 @@
     ctx.fillText('✕ VOLTAR AO JOGO', GAME_WIDTH / 2, backBtnY + 20);
     ctx.restore();
 
-    // Notificação Toast dentro da loja (mensagens de compra/erro)
-    if (shopToastTimer > 0) {
-      ctx.save();
-      const alpha = Math.min(1, shopToastTimer / 18);
-      ctx.globalAlpha = alpha;
-
-      const toastY = 512;
-      const toastW = 240;
-      const toastH = 30;
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.96)';
-      ctx.strokeStyle = shopToastColor;
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(GAME_WIDTH / 2 - toastW / 2, toastY, toastW, toastH, 6);
-      else ctx.rect(GAME_WIDTH / 2 - toastW / 2, toastY, toastW, toastH);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.font = '7.5px "Press Start 2P", monospace';
-      ctx.fillStyle = shopToastColor;
-      ctx.textAlign = 'center';
-      ctx.fillText(shopToastMessage, GAME_WIDTH / 2, toastY + 18);
-      ctx.restore();
+    // Modal de Confirmação de Compra (se o jogador clicou para comprar)
+    if (confirmingSkinPurchase !== null) {
+      drawPurchaseConfirmModal(confirmingSkinPurchase);
     }
+
+    ctx.restore();
+  }
+
+  function drawPurchaseConfirmModal(skinIndex) {
+    const skin = SKINS[skinIndex];
+    if (!skin) return;
+
+    ctx.save();
+
+    // Scrim escuro focado
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    // Diálogo central estilizado
+    const boxW = 280;
+    const boxH = 232;
+    const boxX = GAME_WIDTH / 2 - boxW / 2;
+    const boxY = 175;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.98)';
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 10);
+    else ctx.rect(boxX, boxY, boxW, boxH);
+    ctx.fill();
+    ctx.stroke();
+
+    // Título
+    ctx.textAlign = 'center';
+    ctx.font = '9.5px "Press Start 2P", monospace';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('CONFIRMAR COMPRA', GAME_WIDTH / 2, boxY + 28);
+
+    // Divisória sutil
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(boxX + 16, boxY + 38);
+    ctx.lineTo(boxX + boxW - 16, boxY + 38);
+    ctx.stroke();
+
+    // Pássaro preview animado
+    ctx.save();
+    ctx.translate(GAME_WIDTH / 2, boxY + 75);
+    bird.drawSkin(skin.id);
+    ctx.restore();
+
+    // Nome da Skin & Raridade
+    ctx.font = '8.5px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(skin.name, GAME_WIDTH / 2, boxY + 115);
+
+    ctx.fillStyle = skin.rarityColor;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(GAME_WIDTH / 2 - 35, boxY + 124, 70, 15, 4);
+    else ctx.rect(GAME_WIDTH / 2 - 35, boxY + 124, 70, 15);
+    ctx.fill();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '6.5px "Press Start 2P", monospace';
+    ctx.fillText(skin.rarity.toUpperCase(), GAME_WIDTH / 2, boxY + 135);
+
+    // Resumo de Moedas
+    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.fillStyle = '#facc15';
+    ctx.fillText(`Preço: 🪙 ${skin.price}`, GAME_WIDTH / 2, boxY + 158);
+
+    const remaining = coins - skin.price;
+    ctx.font = '6.5px "Press Start 2P", monospace';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(`Saldo: 🪙 ${coins}  ➔  🪙 ${remaining}`, GAME_WIDTH / 2, boxY + 174);
+
+    // Botões de Ação
+    const btnY = boxY + boxH - 42;
+    const btnH = 28;
+    const btnW = 112;
+
+    // Botão Confirmar (Esquerda)
+    const btnConfirmX = boxX + 18;
+    ctx.fillStyle = '#059669';
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(btnConfirmX, btnY, btnW, btnH, 6);
+    else ctx.rect(btnConfirmX, btnY, btnW, btnH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('✔ COMPRAR', btnConfirmX + btnW / 2, btnY + 17);
+
+    // Botão Cancelar (Direita)
+    const btnCancelX = boxX + boxW - 18 - btnW;
+    ctx.fillStyle = '#dc2626';
+    ctx.strokeStyle = '#f87171';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(btnCancelX, btnY, btnW, btnH, 6);
+    else ctx.rect(btnCancelX, btnY, btnW, btnH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('✕ CANCELAR', btnCancelX + btnW / 2, btnY + 17);
 
     ctx.restore();
   }
@@ -2832,18 +3166,47 @@
   // ----------------------------------------------------
   // TRATAMENTO DE ENTRADAS (TOUCH / TECLADO / MOUSE)
   // ----------------------------------------------------
+  // ----------------------------------------------------
+  // TRATAMENTO DE ENTRADAS (TOUCH / TECLADO / MOUSE)
+  // ----------------------------------------------------
   function handleAction(e, isClickOnCanvas = false) {
     initAudio();
 
     if (currentState === STATE.SHOP) {
       if (isClickOnCanvas && e) {
         const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
+        // Usar GAME_WIDTH / GAME_HEIGHT para que a escala seja independente do buffer interno (360 vs 720)
+        const scaleX = GAME_WIDTH / rect.width;
+        const scaleY = GAME_HEIGHT / rect.height;
         const clientX = (e.clientX !== undefined && e.clientX !== null) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
         const clientY = (e.clientY !== undefined && e.clientY !== null) ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
         const canvasX = (clientX - rect.left) * scaleX;
         const canvasY = (clientY - rect.top) * scaleY;
+
+        // Se o modal de confirmação estiver aberto, trata somente os botões de confirmação
+        if (confirmingSkinPurchase !== null) {
+          // Botões no diálogo: btnY: 365..393
+          if (canvasY >= 360 && canvasY <= 395) {
+            // Confirmar (x: 58..170)
+            if (canvasX >= 54 && canvasX <= 174) {
+              buyOrEquipSkin(confirmingSkinPurchase, true);
+              return;
+            }
+            // Cancelar (x: 186..298)
+            if (canvasX >= 184 && canvasX <= 304) {
+              confirmingSkinPurchase = null;
+              playSound('swoosh');
+              return;
+            }
+          }
+          // Clique fora da caixa de diálogo cancela a confirmação
+          if (canvasX < 40 || canvasX > 320 || canvasY < 175 || canvasY > 410) {
+            confirmingSkinPurchase = null;
+            playSound('swoosh');
+            return;
+          }
+          return;
+        }
 
         // Botão [ ✕ SAIR ] no topo direito (x: 288..340, y: 20..46)
         if (canvasX >= 280 && canvasX <= 345 && canvasY >= 18 && canvasY <= 50) {
@@ -2903,34 +3266,28 @@
       if (isClickOnCanvas && e) {
         // Obter coordenadas no canvas nativo
         const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
+        const scaleX = GAME_WIDTH / rect.width;
+        const scaleY = GAME_HEIGHT / rect.height;
         const clientX = (e.clientX !== undefined && e.clientX !== null) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
         const clientY = (e.clientY !== undefined && e.clientY !== null) ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
         const canvasX = (clientX - rect.left) * scaleX;
         const canvasY = (clientY - rect.top) * scaleY;
 
-        // Se clicou no botão/badge da skin (y: 278-315, x centralizado)
-        if (canvasY >= 275 && canvasY <= 318 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 + 115) {
+        // Se clicou no botão/badge da skin (y: 280-322, x centralizado)
+        if (canvasY >= 280 && canvasY <= 322 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 + 115) {
           cycleSkin();
           return;
         }
 
-        // Se clicou no Card Modo Normal (x: leftX a leftX+cardW, y: 320 a 375)
-        if (canvasY >= 320 && canvasY <= 375 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 - 4) {
+        // Se clicou no Card Modo Normal (x: leftX a leftX+cardW, y: 325 a 380)
+        if (canvasY >= 325 && canvasY <= 380 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 - 4) {
           setMode(GAME_MODE.NORMAL);
           return;
         }
 
-        // Se clicou no Card Modo Turbo (x: rightX a rightX+cardW, y: 320 a 375)
-        if (canvasY >= 320 && canvasY <= 375 && canvasX >= GAME_WIDTH / 2 + 4 && canvasX <= GAME_WIDTH / 2 + 115) {
+        // Se clicou no Card Modo Turbo (x: rightX a rightX+cardW, y: 325 a 380)
+        if (canvasY >= 325 && canvasY <= 380 && canvasX >= GAME_WIDTH / 2 + 4 && canvasX <= GAME_WIDTH / 2 + 115) {
           setMode(GAME_MODE.TURBO);
-          return;
-        }
-
-        // Se clicou no Banner da Loja de Skins (y: 385-422, x centralizado)
-        if (canvasY >= 385 && canvasY <= 422 && canvasX >= GAME_WIDTH / 2 - 115 && canvasX <= GAME_WIDTH / 2 + 115) {
-          openShop();
           return;
         }
       }
@@ -2945,8 +3302,8 @@
       if (Date.now() - gameOverTime > 400) {
         if (isClickOnCanvas && e) {
           const rect = canvas.getBoundingClientRect();
-          const scaleX = canvas.width / rect.width;
-          const scaleY = canvas.height / rect.height;
+          const scaleX = GAME_WIDTH / rect.width;
+          const scaleY = GAME_HEIGHT / rect.height;
           const clientX = (e.clientX !== undefined && e.clientX !== null) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
           const clientY = (e.clientY !== undefined && e.clientY !== null) ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
           const canvasX = (clientX - rect.left) * scaleX;
@@ -2965,6 +3322,20 @@
 
   // Eventos de teclado
   window.addEventListener('keydown', (e) => {
+    // Teclas no modal de confirmação de compra na loja
+    if (currentState === STATE.SHOP && confirmingSkinPurchase !== null) {
+      if (e.code === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        buyOrEquipSkin(confirmingSkinPurchase, true);
+        return;
+      } else if (e.code === 'Escape') {
+        e.preventDefault();
+        confirmingSkinPurchase = null;
+        playSound('swoosh');
+        return;
+      }
+    }
+
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
       e.preventDefault();
       handleAction();
@@ -2978,6 +3349,9 @@
         e.preventDefault();
         toggleMode();
       }
+    } else if (e.code === 'KeyG') {
+      e.preventDefault();
+      toggleGraphicsMode();
     } else if (e.code === 'KeyL') {
       e.preventDefault();
       if (currentState === STATE.SHOP) {
@@ -3010,8 +3384,35 @@
       togglePause();
     }
   });
+  // Toast flutuante unificado para trocas de skin, modo e gráficos
+  function drawNotificationToast() {
+    if (toastTimer <= 0) return;
 
-  // Suporte unificado para Toque e Clique (Mobile e Desktop)
+    ctx.save();
+    const alpha = Math.min(1, toastTimer / 18);
+    ctx.globalAlpha = alpha;
+
+    const toastW = 240;
+    const toastH = 32;
+    const toastX = GAME_WIDTH / 2 - toastW / 2;
+    const toastY = 82;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+    ctx.strokeStyle = toastColor;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(toastX, toastY, toastW, toastH, 6);
+    else ctx.rect(toastX, toastY, toastW, toastH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.fillStyle = toastColor;
+    ctx.textAlign = 'center';
+    ctx.fillText(toastMessage, GAME_WIDTH / 2, toastY + 19);
+
+    ctx.restore();
+  }
   if (window.PointerEvent) {
     canvas.addEventListener('pointerdown', (e) => {
       if (e.isPrimary) {
@@ -3034,40 +3435,6 @@
     });
   }
 
-  // Toast flutuante de confirmação da troca de skin
-  function drawSkinToast() {
-    if (skinToastTimer <= 0) return;
-
-    ctx.save();
-    const alpha = Math.min(1, skinToastTimer / 18);
-    ctx.globalAlpha = alpha;
-
-    const skin = SKINS[currentSkinIndex];
-    const toastW = 220;
-    const toastH = 34;
-    const toastX = GAME_WIDTH / 2 - toastW / 2;
-    const toastY = 85;
-
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(toastX, toastY, toastW, toastH, 6);
-    } else {
-      ctx.rect(toastX, toastY, toastW, toastH);
-    }
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.font = '8.5px "Press Start 2P", monospace';
-    ctx.fillStyle = '#facc15';
-    ctx.textAlign = 'center';
-    ctx.fillText('Skin: ' + skin.icon + ' ' + skin.name, GAME_WIDTH / 2, toastY + 22);
-
-    ctx.restore();
-  }
-
   // ----------------------------------------------------
   // LOOP PRINCIPAL COM TIMESTEP FIXO (60 FPS DETERMINÍSTICO)
   // Garante velocidade idêntica em qualquer taxa de atualização (60Hz, 90Hz, 120Hz, 144Hz)
@@ -3085,7 +3452,7 @@
     if (currentState === STATE.SHOP) {
       bird.hoverOffset = Math.sin(frames * 0.1) * 6;
       bird.flapIndex = Math.floor((frames / 7) % 3);
-      if (shopToastTimer > 0) shopToastTimer--;
+      if (toastTimer > 0) toastTimer--;
       return;
     }
 
@@ -3120,14 +3487,20 @@
       }
     }
 
-    // Timer do aviso de skin
-    if (skinToastTimer > 0) {
-      skinToastTimer--;
+    // Timer do toast unificado
+    if (toastTimer > 0) {
+      toastTimer--;
     }
   }
 
   function render() {
     ctx.save();
+
+    // No modo HD, aplica escala 2x para renderização Retina em 720x1280
+    if (graphicsMode === GRAPHICS_MODE.HD) {
+      ctx.scale(2, 2);
+    }
+
     // Aplicar Screen Shake em colisões
     if (screenShake > 0) {
       const shakeX = (Math.random() - 0.5) * screenShake * 2;
@@ -3147,17 +3520,16 @@
       ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
     }
 
-    ctx.restore();
-
     // Camadas de Interface (não sofrem tremor da tela)
     drawScoreInGame();
     drawReadyScreen();
     drawGameOverModal();
     drawPauseScreen();
-    drawSkinToast();
     drawShopModal();
-  }
+    drawNotificationToast();
 
+    ctx.restore();
+  }
   function loop(timestamp) {
     const currentTime = typeof timestamp === 'number' ? timestamp : performance.now();
     if (!lastTime) {
