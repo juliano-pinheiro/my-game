@@ -103,6 +103,21 @@ canvas#gameCanvas {
   transform: scale(0.95);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  #ui-overlay button:hover {
+    transform: none;
+  }
+}
+
 .instructions-panel {
   background: rgba(30, 41, 59, 0.85);
   border: 2px solid #475569;
@@ -164,4 +179,3 @@ kbd {
     font-size: 7px;
   }
 }
-

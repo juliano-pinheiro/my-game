@@ -48,7 +48,7 @@ Pressione <kbd>S</kbd> ou clique no botão/badge para alternar entre as 4 skins 
   * 🥈 Prata (≥ 20 pontos)
   * 🥇 Ouro (≥ 35 pontos)
   * 💎 Platina (≥ 50 pontos)
-* **Persistência de Recorde e Preferências:** O seu melhor resultado (*Best Score*), skin favorita e a preferência de áudio são salvos automaticamente no `localStorage` do navegador.
+* **Persistência de Recorde e Preferências:** O seu melhor resultado (*Best Score*), skin favorita, moedas, modo gráfico e preferência de áudio são salvos automaticamente no `localStorage` do navegador, com migração compatível dos saves antigos.
 * **Totalmente Responsivo:** Funciona e escala perfeitamente em telas de computadores, notebooks, tablets e smartphones.
 
 ---
@@ -71,8 +71,20 @@ git push -u origin main
 
 As regras de pontuação, medalhas, moedas e normalização do save ficam em módulos testáveis na pasta `src/`.
 
+Na versão executada pelo navegador, as responsabilidades principais estão separadas em:
+
+* `audio.js`: sintetizador de áudio;
+* `shop.js`: regras de compra e desbloqueio de skins;
+* `physics.js`: velocidade, spawn e colisão;
+* `score.js`: recordes e recompensas da rodada.
+* `config.js`: dimensões, estados e modos compartilhados.
+* `state.js`: estado mutável central da partida, inventário, preferências e transição entre telas.
+* `input.js`: teclado, Pointer Events, touch e mouse legado.
+* `scripts/sync-assets.mjs`: sincroniza os assets da raiz com `docs/` e o WebView Android.
+
 Com Node.js instalado, execute:
 
 ```bash
 npm test
+npm run sync-assets
 ```

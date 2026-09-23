@@ -5,6 +5,7 @@
   "description": "Flying Bird - Retro Edition",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "sync-assets": "node scripts/sync-assets.mjs"
   }
 }

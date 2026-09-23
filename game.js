@@ -20,10 +20,11 @@
   const pauseIcon = document.getElementById('pause-icon');
 
   // Dimensões lógicas nativas do jogo (todas as coordenadas usam 360x640)
-  const GAME_WIDTH = 360;
-  const GAME_HEIGHT = 640;
-  const GROUND_HEIGHT = 112;
-  const GROUND_Y = GAME_HEIGHT - GROUND_HEIGHT;
+  const config = window.FlyingBirdConfig;
+  const GAME_WIDTH = config.GAME_WIDTH;
+  const GAME_HEIGHT = config.GAME_HEIGHT;
+  const GROUND_HEIGHT = config.GROUND_HEIGHT;
+  const GROUND_Y = config.GROUND_Y;
 
   // Acesso seguro ao localStorage (evita SecurityError ao rodar por file:/// ou janelas anônimas)
   const safeStorage = {
@@ -38,22 +39,96 @@
       try {
         localStorage.setItem(key, val);
       } catch (e) {}
+    },
+    getJSON(key, fallback = null) {
+      const value = this.get(key);
+      if (value === null) return fallback;
+      try {
+        return JSON.parse(value);
+      } catch (e) {
+        return fallback;
+      }
+    },
+    setJSON(key, value) {
+      try {
+        this.set(key, JSON.stringify(value));
+      } catch (e) {}
     }
   };
 
-  // Modos Gráficos (Retrô Clássico vs HD Alta Resolução)
-  const GRAPHICS_MODE = {
-    RETRO: 'retro',
-    HD: 'hd'
-  };
+  const SAVE_KEY = 'flying_bird_save';
+  const SAVE_VERSION = 1;
 
-  let graphicsMode = safeStorage.get('flying_graphics_mode', GRAPHICS_MODE.HD);
-  if (graphicsMode !== GRAPHICS_MODE.RETRO && graphicsMode !== GRAPHICS_MODE.HD) {
-    graphicsMode = GRAPHICS_MODE.HD;
+  function normalizeSaveData(save = {}) {
+    const bestScores = save.bestScores && typeof save.bestScores === 'object'
+      ? save.bestScores
+      : {};
+    const unlockedSkins = Array.isArray(save.unlockedSkins)
+      ? [...new Set(save.unlockedSkins.filter((skin) => typeof skin === 'string'))]
+      : [];
+
+    return {
+      version: SAVE_VERSION,
+      coins: Number.isFinite(save.coins) && save.coins >= 0 ? Math.floor(save.coins) : 0,
+      unlockedSkins: unlockedSkins.includes('classic_hd')
+        ? unlockedSkins
+        : ['classic_hd', ...unlockedSkins],
+      currentSkin: typeof save.currentSkin === 'string' ? save.currentSkin : 'classic_hd',
+      muted: save.muted === true,
+      graphicsMode: save.graphicsMode === 'retro' ? 'retro' : 'hd',
+      gameMode: save.gameMode === 'turbo' ? 'turbo' : 'normal',
+      bestScores: {
+        normal: Number.isFinite(bestScores.normal) && bestScores.normal >= 0
+          ? Math.floor(bestScores.normal)
+          : 0,
+        turbo: Number.isFinite(bestScores.turbo) && bestScores.turbo >= 0
+          ? Math.floor(bestScores.turbo)
+          : 0
+      }
+    };
+  }
+
+  function loadGameSave() {
+    const storedSave = safeStorage.getJSON(SAVE_KEY);
+    if (storedSave && storedSave.version === SAVE_VERSION) {
+      return normalizeSaveData(storedSave);
+    }
+
+    const legacyUnlockedSkins = safeStorage.getJSON('flying_unlocked_skins', []);
+    const legacySkins = Array.isArray(legacyUnlockedSkins) ? legacyUnlockedSkins : [];
+    const migratedSave = normalizeSaveData({
+      coins: parseInt(safeStorage.get('flying_coins') || '0', 10),
+      unlockedSkins: legacySkins,
+      currentSkin: '',
+      muted: (safeStorage.get('flying_muted') ?? safeStorage.get('flappy_muted')) === 'true',
+      graphicsMode: safeStorage.get('flying_graphics_mode', 'hd'),
+      gameMode: safeStorage.get('flying_game_mode', 'normal'),
+      bestScores: {
+        normal: parseInt(safeStorage.get('flying_best_score_normal') || safeStorage.get('flying_best_score') || '0', 10),
+        turbo: parseInt(safeStorage.get('flying_best_score_turbo') || '0', 10)
+      }
+    });
+
+    safeStorage.setJSON(SAVE_KEY, migratedSave);
+    return migratedSave;
+  }
+
+  const gameSave = loadGameSave();
+  const state = window.FlyingBirdState.createGameState({ config, save: gameSave });
+
+  function persistGameSave() {
+    safeStorage.setJSON(SAVE_KEY, normalizeSaveData(gameSave));
+  }
+
+  // Modos Gráficos (Retrô Clássico vs HD Alta Resolução)
+  const GRAPHICS_MODE = config.GRAPHICS_MODE;
+
+  if (state.graphicsMode !== GRAPHICS_MODE.RETRO && state.graphicsMode !== GRAPHICS_MODE.HD) {
+    state.graphicsMode = GRAPHICS_MODE.HD;
   }
 
   function applyGraphicsModeResolution() {
-    if (graphicsMode === GRAPHICS_MODE.HD) {
+    if (state.graphicsMode === GRAPHICS_MODE.HD) {
       // Buffer 2x de alta densidade (Retina/AMOLED) para zero serrilhado
       canvas.width = 720;
       canvas.height = 1280;
@@ -71,15 +146,17 @@
   }
 
   function setGraphicsMode(mode) {
-    graphicsMode = mode;
+    state.graphicsMode = mode;
+    gameSave.graphicsMode = mode;
     safeStorage.set('flying_graphics_mode', mode);
+    persistGameSave();
     applyGraphicsModeResolution();
     showToastNotification(mode === GRAPHICS_MODE.HD ? 'Gráficos: ✨ HD (Alta Resolução)' : 'Gráficos: 📺 Retrô Clássico', '#38bdf8');
     playSound('swoosh');
   }
 
   function toggleGraphicsMode() {
-    setGraphicsMode(graphicsMode === GRAPHICS_MODE.HD ? GRAPHICS_MODE.RETRO : GRAPHICS_MODE.HD);
+    setGraphicsMode(state.graphicsMode === GRAPHICS_MODE.HD ? GRAPHICS_MODE.RETRO : GRAPHICS_MODE.HD);
   }
 
   // Aplica a resolução inicial configurada (HD 720x1280 ou Retrô 360x640)
@@ -173,59 +250,51 @@
   ];
 
   // Sistema de Economia e Inventário de Skins
-  let coins = parseInt(safeStorage.get('flying_coins') || '0', 10);
-  if (isNaN(coins) || coins < 0) coins = 0;
-  let lastCoinsEarned = 0;
-
-  let unlockedSkins = [];
-  try {
-    const storedUnlocked = safeStorage.get('flying_unlocked_skins');
-    if (storedUnlocked) {
-      unlockedSkins = JSON.parse(storedUnlocked);
-    }
-  } catch (e) {
-    unlockedSkins = [];
+  if (!Array.isArray(state.unlockedSkins) || state.unlockedSkins.length === 0) {
+    state.unlockedSkins = ['classic_hd'];
   }
-  if (!Array.isArray(unlockedSkins) || unlockedSkins.length === 0) {
-    unlockedSkins = ['classic_hd'];
-  }
-  if (!unlockedSkins.includes('classic_hd')) {
-    unlockedSkins.push('classic_hd');
+  if (!state.unlockedSkins.includes('classic_hd')) {
+    state.unlockedSkins.push('classic_hd');
   }
 
   function isSkinUnlocked(skinId) {
-    return unlockedSkins.includes(skinId);
+    return state.unlockedSkins.includes(skinId);
   }
 
   function saveInventory() {
-    safeStorage.set('flying_coins', coins.toString());
-    safeStorage.set('flying_unlocked_skins', JSON.stringify(unlockedSkins));
-    safeStorage.set('flying_skin_index', currentSkinIndex.toString());
+    gameSave.coins = state.coins;
+    gameSave.unlockedSkins = [...state.unlockedSkins];
+    gameSave.currentSkin = SKINS[state.currentSkinIndex].id;
+    safeStorage.set('flying_coins', state.coins.toString());
+    safeStorage.set('flying_unlocked_skins', JSON.stringify(state.unlockedSkins));
+    safeStorage.set('flying_skin_index', state.currentSkinIndex.toString());
+    persistGameSave();
   }
 
-  let currentSkinIndex = parseInt(safeStorage.get('flying_skin_index') || '0', 10);
-  if (isNaN(currentSkinIndex) || currentSkinIndex < 0 || currentSkinIndex >= SKINS.length || !isSkinUnlocked(SKINS[currentSkinIndex].id)) {
-    currentSkinIndex = 0;
+  state.currentSkinIndex = SKINS.findIndex((skin) => skin.id === gameSave.currentSkin);
+  if (state.currentSkinIndex < 0) {
+    state.currentSkinIndex = parseInt(safeStorage.get('flying_skin_index') || '0', 10);
+  }
+  if (isNaN(state.currentSkinIndex) || state.currentSkinIndex < 0 || state.currentSkinIndex >= SKINS.length || !isSkinUnlocked(SKINS[state.currentSkinIndex].id)) {
+    state.currentSkinIndex = 0;
   }
 
   // Estados e Navegação da Loja
-  let shopPage = 0; // 0 = Pág 1 (skins 0..3), 1 = Pág 2 (skins 4..7)
   const SKINS_PER_PAGE = 4;
-  let confirmingSkinPurchase = null; // Índice da skin que aguarda confirmação de compra
 
   function openShop() {
-    if (currentState === STATE.PLAYING) return;
-    confirmingSkinPurchase = null;
-    previousState = currentState;
-    currentState = STATE.SHOP;
+    if (state.currentState === STATE.PLAYING) return;
+    state.confirmingSkinPurchase = null;
+    state.previousState = state.currentState;
+    state.currentState = STATE.SHOP;
     updateUIState();
     playSound('swoosh');
   }
 
   function closeShop() {
-    if (currentState !== STATE.SHOP) return;
-    confirmingSkinPurchase = null;
-    currentState = (previousState === STATE.GAMEOVER) ? STATE.GAMEOVER : STATE.READY;
+    if (state.currentState !== STATE.SHOP) return;
+    state.confirmingSkinPurchase = null;
+    state.currentState = (state.previousState === STATE.GAMEOVER) ? STATE.GAMEOVER : STATE.READY;
     updateUIState();
     playSound('swoosh');
   }
@@ -233,96 +302,76 @@
   function buyOrEquipSkin(skinIndex, forceConfirm = false) {
     if (skinIndex < 0 || skinIndex >= SKINS.length) return;
     const skin = SKINS[skinIndex];
+    const result = window.FlyingBirdShop
+      ? window.FlyingBirdShop.purchaseSkin({
+        skin,
+        coins: state.coins,
+        unlockedSkins: state.unlockedSkins,
+        confirm: forceConfirm
+      })
+      : null;
 
-    if (isSkinUnlocked(skin.id)) {
-      currentSkinIndex = skinIndex;
+    if (result && result.status === 'equipped') {
+      state.currentSkinIndex = skinIndex;
       saveInventory();
       if (skinIcon) skinIcon.textContent = skin.icon;
       showToastNotification(`Equipado: ${skin.icon} ${skin.name}`, '#34d399');
       playSound('swoosh');
-    } else {
-      if (coins < skin.price) {
-        const missing = skin.price - coins;
-        showToastNotification(`Faltam 🪙 ${missing} moedas!`, '#ef4444');
-        playSound('error');
-        screenShake = 6;
-        return;
-      }
-
-      // Se o jogador tem saldo e ainda não confirmou, abre o modal de confirmação
-      if (!forceConfirm) {
-        confirmingSkinPurchase = skinIndex;
-        playSound('swoosh');
-      } else {
-        // Confirmação aceita: executa a compra
-        coins -= skin.price;
-        unlockedSkins.push(skin.id);
-        currentSkinIndex = skinIndex;
-        saveInventory();
-        confirmingSkinPurchase = null;
-        if (skinIcon) skinIcon.textContent = skin.icon;
-        showToastNotification(`Comprado: ${skin.icon} ${skin.name}!`, '#38bdf8');
-        playSound('buy');
-      }
+    } else if (result && result.status === 'insufficient-funds') {
+        showToastNotification(`Faltam 🪙 ${result.missing} moedas!`, '#ef4444');
+      playSound('error');
+      state.screenShake = 6;
+    } else if (result && result.status === 'confirmation-required') {
+      state.confirmingSkinPurchase = skinIndex;
+      playSound('swoosh');
+    } else if (result && result.status === 'purchased') {
+      state.coins = result.coins;
+      state.unlockedSkins = result.unlockedSkins;
+      state.currentSkinIndex = skinIndex;
+      saveInventory();
+      state.confirmingSkinPurchase = null;
+      if (skinIcon) skinIcon.textContent = skin.icon;
+      showToastNotification(`Comprado: ${skin.icon} ${skin.name}!`, '#38bdf8');
+      playSound('buy');
     }
   }
 
   // Estados do jogo
-  const STATE = {
-    READY: 0,
-    PLAYING: 1,
-    GAMEOVER: 2,
-    PAUSED: 3,
-    SHOP: 4
-  };
-  let currentState = STATE.READY;
-  let previousState = STATE.READY;
-  let frames = 0;
-  let score = 0;
+  const STATE = config.STATE;
 
   // Modos de Jogo
-  const GAME_MODE = {
-    NORMAL: 'normal',
-    TURBO: 'turbo'
-  };
+  const GAME_MODE = config.GAME_MODE;
 
-  let currentMode = safeStorage.get('flying_game_mode', GAME_MODE.NORMAL);
-  if (currentMode !== GAME_MODE.NORMAL && currentMode !== GAME_MODE.TURBO) {
-    currentMode = GAME_MODE.NORMAL;
+  if (state.currentMode !== GAME_MODE.NORMAL && state.currentMode !== GAME_MODE.TURBO) {
+    state.currentMode = GAME_MODE.NORMAL;
   }
 
   // Recordes separados por modo
-  let bestScoreNormal = parseInt(safeStorage.get('flying_best_score_normal') || safeStorage.get('flying_best_score') || '0', 10);
-  let bestScoreTurbo = parseInt(safeStorage.get('flying_best_score_turbo') || '0', 10);
-
   function getBestScore() {
-    return currentMode === GAME_MODE.TURBO ? bestScoreTurbo : bestScoreNormal;
+    return state.currentMode === GAME_MODE.TURBO
+      ? state.bestScoreTurbo
+      : state.bestScoreNormal;
   }
 
   function setMode(newMode) {
-    if (currentState !== STATE.READY) return;
-    currentMode = newMode;
-    safeStorage.set('flying_game_mode', currentMode);
+    if (state.currentState !== STATE.READY) return;
+    state.currentMode = newMode;
+    gameSave.gameMode = state.currentMode;
+    safeStorage.set('flying_game_mode', state.currentMode);
+    persistGameSave();
     playSound('swoosh');
   }
 
   function toggleMode() {
-    setMode(currentMode === GAME_MODE.NORMAL ? GAME_MODE.TURBO : GAME_MODE.NORMAL);
+    setMode(state.currentMode === GAME_MODE.NORMAL ? GAME_MODE.TURBO : GAME_MODE.NORMAL);
   }
 
-  let isNewRecord = false;
-  let isMuted = (safeStorage.get('flying_muted') ?? safeStorage.get('flappy_muted')) === 'true';
-  let gameOverTime = 0;
-  let scoreCounterAnimation = 0;
-  let scoreScale = 1.0;
-
-  // Efeitos visuais (Screen Shake e Flash)
-  let screenShake = 0;
-  let flashAlpha = 0;
+  // Efeitos  visuais (Screen Shake e Flash)
 
   // Atualizar ícones iniciais
-  soundIcon.textContent = isMuted ? '🔇' : '🔊';
-  if (skinIcon) skinIcon.textContent = SKINS[currentSkinIndex].icon;
+  soundIcon.textContent = state.isMuted ? '🔇' : '🔊';
+  soundBtn.setAttribute('aria-pressed', String(state.isMuted));
+  if (skinIcon) skinIcon.textContent = SKINS[state.currentSkinIndex].icon;
 
   // ----------------------------------------------------
   // SINTETIZADOR DE ÁUDIO (Web Audio API - Sem arquivos externos)
@@ -330,6 +379,10 @@
   let audioCtx = null;
 
   function initAudio() {
+    if (window.FlyingBirdAudio) {
+      window.FlyingBirdAudio.initAudio();
+      return;
+    }
     if (!audioCtx) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (AudioContextClass) {
@@ -342,7 +395,11 @@
   }
 
   function playSound(type) {
-    if (isMuted) return;
+    if (window.FlyingBirdAudio) {
+      window.FlyingBirdAudio.playSound(type, state.isMuted);
+      return;
+    }
+    if (state.isMuted) return;
     initAudio();
     if (!audioCtx) return;
 
@@ -363,7 +420,7 @@
         osc.start(now);
         osc.stop(now + 0.12);
 
-      } else if (type === 'score') {
+      } else if (type === 'state.score') {
         // Ponto: Dois tons harmoniosos agudos brilhantes
         const osc1 = audioCtx.createOscillator();
         const osc2 = audioCtx.createOscillator();
@@ -480,36 +537,44 @@
   // Alternar mudo
   soundBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    isMuted = !isMuted;
-    safeStorage.set('flying_muted', isMuted ? 'true' : 'false');
-    soundIcon.textContent = isMuted ? '🔇' : '🔊';
+    state.isMuted = !state.isMuted;
+    gameSave.muted = state.isMuted;
+    safeStorage.set('flying_muted', state.isMuted ? 'true' : 'false');
+    persistGameSave();
+    soundIcon.textContent = state.isMuted ? '🔇' : '🔊';
+    soundBtn.setAttribute('aria-pressed', String(state.isMuted));
   });
 
   // Alternar skin do pássaro (cicla apenas entre skins que o jogador já desbloqueou)
   function cycleSkin() {
-    if (currentState !== STATE.READY) return;
+    if (state.currentState !== STATE.READY) return;
 
     initAudio();
-    let nextIndex = currentSkinIndex;
-    for (let i = 1; i <= SKINS.length; i++) {
-      const candidate = (currentSkinIndex + i) % SKINS.length;
-      if (isSkinUnlocked(SKINS[candidate].id)) {
-        nextIndex = candidate;
-        break;
-      }
-    }
+    const nextIndex = window.FlyingBirdShop
+      ? window.FlyingBirdShop.getNextUnlockedIndex(state.currentSkinIndex, SKINS, state.unlockedSkins)
+      : state.currentSkinIndex;
 
-    currentSkinIndex = nextIndex;
+    state.currentSkinIndex = nextIndex;
     saveInventory();
-    if (skinIcon) skinIcon.textContent = SKINS[currentSkinIndex].icon;
-    showToastNotification(`Skin: ${SKINS[currentSkinIndex].icon} ${SKINS[currentSkinIndex].name}`, '#facc15');
+    if (skinIcon) skinIcon.textContent = SKINS[state.currentSkinIndex].icon;
+    showToastNotification(`Skin: ${SKINS[state.currentSkinIndex].icon} ${SKINS[state.currentSkinIndex].name}`, '#facc15');
     playSound('swoosh');
   }
 
   // Atualiza visibilidade dos botões da interface conforme o estado
   function updateUIState() {
+    if (graphicsBtn) {
+      graphicsBtn.setAttribute('aria-pressed', String(state.graphicsMode === GRAPHICS_MODE.HD));
+    }
+    if (shopBtn) {
+      shopBtn.setAttribute('aria-expanded', String(state.currentState === STATE.SHOP));
+    }
+    if (pauseBtn) {
+      pauseBtn.setAttribute('aria-pressed', String(state.currentState === STATE.PAUSED));
+    }
+
     if (skinBtn) {
-      if (currentState === STATE.READY) {
+      if (state.currentState === STATE.READY) {
         skinBtn.classList.remove('hidden');
       } else {
         skinBtn.classList.add('hidden');
@@ -517,7 +582,7 @@
     }
 
     if (graphicsBtn) {
-      if (currentState !== STATE.PLAYING) {
+      if (state.currentState !== STATE.PLAYING) {
         graphicsBtn.classList.remove('hidden');
       } else {
         graphicsBtn.classList.add('hidden');
@@ -525,7 +590,7 @@
     }
 
     if (shopBtn) {
-      if (currentState === STATE.READY || currentState === STATE.GAMEOVER || currentState === STATE.SHOP) {
+      if (state.currentState === STATE.READY || state.currentState === STATE.GAMEOVER || state.currentState === STATE.SHOP) {
         shopBtn.classList.remove('hidden');
       } else {
         shopBtn.classList.add('hidden');
@@ -533,7 +598,7 @@
     }
 
     if (pauseBtn) {
-      if (currentState === STATE.PLAYING || currentState === STATE.PAUSED) {
+      if (state.currentState === STATE.PLAYING || state.currentState === STATE.PAUSED) {
         pauseBtn.classList.remove('hidden');
       } else {
         pauseBtn.classList.add('hidden');
@@ -558,7 +623,7 @@
   if (shopBtn) {
     shopBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (currentState === STATE.SHOP) {
+      if (state.currentState === STATE.SHOP) {
         closeShop();
       } else {
         openShop();
@@ -572,14 +637,17 @@
   });
 
   function togglePause() {
-    if (currentState === STATE.PLAYING) {
-      previousState = currentState;
-      currentState = STATE.PAUSED;
+    if (state.currentState === STATE.PLAYING) {
+      state.previousState = state.currentState;
+      state.currentState = STATE.PAUSED;
       pauseIcon.textContent = '▶️';
-    } else if (currentState === STATE.PAUSED) {
-      currentState = previousState;
+      pauseBtn.setAttribute('aria-pressed', 'true');
+    } else if (state.currentState === STATE.PAUSED) {
+      state.currentState = state.previousState;
       pauseIcon.textContent = '⏸️';
+      pauseBtn.setAttribute('aria-pressed', 'false');
     }
+    updateUIState();
   }
 
   // ----------------------------------------------------
@@ -653,7 +721,7 @@
   let cityScrollOffset = 0;
 
   function updateBackground() {
-    if (currentState === STATE.GAMEOVER || currentState === STATE.PAUSED) return;
+    if (state.currentState === STATE.GAMEOVER || state.currentState === STATE.PAUSED) return;
 
     const currentSpeed = (typeof pipes !== 'undefined' && pipes.currentSpeed) ? pipes.currentSpeed : 2.4;
     const speedRatio = currentSpeed / 2.4;
@@ -673,7 +741,7 @@
   }
 
   function drawSkyAndCity() {
-    if (graphicsMode === GRAPHICS_MODE.HD) {
+    if (state.graphicsMode === GRAPHICS_MODE.HD) {
       // Céu HD: Gradiente vibrante suave com atmosfera
       const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
       skyGrad.addColorStop(0, '#2563eb');
@@ -830,7 +898,7 @@
   }
 
   function drawGround() {
-    if (graphicsMode === GRAPHICS_MODE.HD) {
+    if (state.graphicsMode === GRAPHICS_MODE.HD) {
       // Faixa de grama HD com folhagens orgânicas
       const grassGrad = ctx.createLinearGradient(0, GROUND_Y, 0, GROUND_Y + 16);
       grassGrad.addColorStop(0, '#86efac');
@@ -940,7 +1008,7 @@
       playSound('flap');
 
       // Partículas de penas/rastro ao bater asas
-      const skin = SKINS[currentSkinIndex];
+      const skin = SKINS[state.currentSkinIndex];
       for (let i = 0; i < 3; i++) {
         particles.push({
           x: this.x - 12,
@@ -956,15 +1024,15 @@
     },
 
     update() {
-      if (currentState === STATE.READY) {
+      if (state.currentState === STATE.READY) {
         // Animação de flutuação suave antes de começar
-        this.hoverOffset = Math.sin(frames * 0.1) * 6;
-        this.flapIndex = Math.floor((frames / 7) % 3);
+        this.hoverOffset = Math.sin(state.frames * 0.1) * 6;
+        this.flapIndex = Math.floor((state.frames / 7) % 3);
         this.rotation = 0;
         return;
       }
 
-      if (currentState === STATE.PLAYING) {
+      if (state.currentState === STATE.PLAYING) {
         this.velocity += this.gravity;
         if (this.velocity > 9) this.velocity = 9;
 
@@ -979,20 +1047,20 @@
 
         // Bater asas
         if (this.velocity < 2) {
-          this.flapIndex = Math.floor((frames / 5) % 3);
+          this.flapIndex = Math.floor((state.frames / 5) % 3);
         } else {
           this.flapIndex = 1;
         }
 
         // Rastro de vento aerodinâmico em velocidade alta
-        if (frames % 4 === 0 && Math.abs(this.velocity) > 1.6) {
+        if (state.frames % 4 === 0 && Math.abs(this.velocity) > 1.6) {
           particles.push({
             x: this.x - 14,
             y: this.y + (Math.random() - 0.5) * 5,
             vx: -2.2,
             vy: (Math.random() - 0.5) * 0.6,
             radius: Math.random() * 1.8 + 1,
-            color: SKINS[currentSkinIndex].particleColor,
+            color: SKINS[state.currentSkinIndex].particleColor,
             alpha: 0.5,
             decay: 0.04
           });
@@ -1009,7 +1077,7 @@
           this.y = GROUND_Y - this.radius;
           triggerGameOver(true);
         }
-      } else if (currentState === STATE.GAMEOVER) {
+      } else if (state.currentState === STATE.GAMEOVER) {
         if (this.y + this.radius < GROUND_Y) {
           this.velocity += this.gravity * 1.5;
           this.y += this.velocity;
@@ -1042,7 +1110,7 @@
 
     draw() {
       ctx.save();
-      const drawY = currentState === STATE.READY ? (this.y + this.hoverOffset) : this.y;
+      const drawY = state.currentState === STATE.READY ? (this.y + this.hoverOffset) : this.y;
       ctx.translate(this.x, drawY);
       ctx.rotate(this.rotation);
 
@@ -1052,7 +1120,7 @@
       ctx.ellipse(0, 16, 14, 5, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      this.drawSkin(SKINS[currentSkinIndex].id);
+      this.drawSkin(SKINS[state.currentSkinIndex].id);
 
       ctx.restore();
     },
@@ -1459,7 +1527,7 @@
       ctx.stroke();
 
       // Ponto de luz cintilante na órbita
-      const orbitAngle = frames * 0.1;
+      const orbitAngle = state.frames * 0.1;
       const ox = Math.cos(orbitAngle) * 23;
       const oy = Math.sin(orbitAngle) * 7.5;
       const rotOx = ox * Math.cos(-0.35) - oy * Math.sin(-0.35);
@@ -1761,7 +1829,7 @@
     // --- SKIN 3: FÊNIX MÍSTICA (Plumagem de fogo radiante) ---
     drawPhoenixSkin() {
       // 3 Penas de chama na crista
-      const flameFlicker = Math.sin(frames * 0.2) * 2;
+      const flameFlicker = Math.sin(state.frames * 0.2) * 2;
       ctx.fillStyle = '#dc2626';
       ctx.beginPath();
       ctx.ellipse(-10, -13 + flameFlicker, 4, 9, -0.4, 0, Math.PI * 2);
@@ -1966,14 +2034,24 @@
     spawnInterval: 95,
 
     getSpeed() {
-      if (currentMode === GAME_MODE.TURBO) {
+      if (window.FlyingBirdPhysics) {
+        return window.FlyingBirdPhysics.getPipeSpeed({
+          mode: state.currentMode,
+          baseSpeed: this.baseSpeed,
+          state.score
+        });
+      }
+      if (state.currentMode === GAME_MODE.TURBO) {
         // Modo Turbo: acelera suavemente (+0.05 por ponto) até o limite jogável de 3.6 px/frame
-        return Math.min(3.6, this.baseSpeed + score * 0.05);
+        return Math.min(3.6, this.baseSpeed + state.score * 0.05);
       }
       return this.baseSpeed;
     },
 
     getSpawnInterval() {
+      if (window.FlyingBirdPhysics) {
+        return window.FlyingBirdPhysics.getSpawnInterval(this.currentSpeed);
+      }
       // Mantém a distância entre canos uniforme em aprox 228 pixels
       return Math.round(228 / this.currentSpeed);
     },
@@ -1986,7 +2064,7 @@
     },
 
     update() {
-      if (currentState !== STATE.PLAYING) return;
+      if (state.currentState !== STATE.PLAYING) return;
 
       this.currentSpeed = this.getSpeed();
       this.spawnInterval = this.getSpawnInterval();
@@ -2015,8 +2093,8 @@
         // Ponto marcado quando ultrapassa o centro do pássaro
         if (!p.passed && p.x + this.width < bird.x) {
           p.passed = true;
-          score++;
-          scoreScale = 1.25;
+          state.score++;
+          state.scoreScale = 1.25;
           playSound('score');
           addExplosion(p.x + this.width, p.top + this.gap / 2, '#38bdf8', 6);
         }
@@ -2056,7 +2134,7 @@
 
     ctx.save();
 
-    if (graphicsMode === GRAPHICS_MODE.HD) {
+    if (state.graphicsMode === GRAPHICS_MODE.HD) {
       // Canos HD Metálicos com Iluminação Cilíndrica e Especular
       const pipeGrad = ctx.createLinearGradient(x, 0, x + width, 0);
       pipeGrad.addColorStop(0, '#166534');
@@ -2139,6 +2217,14 @@
     ctx.restore();
   }
   function checkCollision(b, p) {
+    if (window.FlyingBirdPhysics) {
+      return window.FlyingBirdPhysics.checkCollision({
+        bird: b,
+        pipe: p,
+        pipeWidth: pipes.width,
+        pipeGap: pipes.gap
+      });
+    }
     const margin = 2; // Margem de tolerância para jogabilidade justa
     const bx = b.x;
     const by = b.y;
@@ -2164,13 +2250,13 @@
   // GAME OVER & TRANSIÇÕES
   // ----------------------------------------------------
   function triggerGameOver(hitGround) {
-    if (currentState === STATE.GAMEOVER) return;
+    if (state.currentState === STATE.GAMEOVER) return;
 
-    currentState = STATE.GAMEOVER;
+    state.currentState = STATE.GAMEOVER;
     updateUIState();
-    gameOverTime = Date.now();
-    screenShake = 12;
-    flashAlpha = 0.8;
+    state.gameOverTime = Date.now();
+    state.screenShake = 12;
+    state.flashAlpha = 0.8;
 
     playSound('hit');
     if (!hitGround) {
@@ -2181,69 +2267,57 @@
     addExplosion(bird.x, bird.y, '#facc15', 16);
     addExplosion(bird.x, bird.y, '#ffffff', 8);
 
-    // Atualizar recorde conforme o modo atual
-    if (currentMode === GAME_MODE.TURBO) {
-      if (score > bestScoreTurbo) {
-        bestScoreTurbo = score;
-        isNewRecord = true;
-        safeStorage.set('flying_best_score_turbo', bestScoreTurbo.toString());
-      } else {
-        isNewRecord = false;
-      }
+    const currentBestScore = state.currentMode === GAME_MODE.TURBO
+      ? state.bestScoreTurbo
+      : state.bestScoreNormal;
+    const roundResult = window.FlyingBirdScore
+      ? window.FlyingBirdScore.evaluateRound({
+        score: state.score,
+        mode: state.currentMode,
+        bestScore: currentBestScore
+      })
+      : {
+        score: state.score,
+        bestScore: currentBestScore,
+        isNewRecord: state.score > currentBestScore,
+        reward: {
+          total: state.score * (state.currentMode === GAME_MODE.TURBO ? 2 : 1)
+        }
+      };
+
+    state.isNewRecord = roundResult.isNewRecord;
+    if (state.currentMode === GAME_MODE.TURBO) {
+      state.bestScoreTurbo = roundResult.bestScore;
+      gameSave.bestScores.turbo = state.bestScoreTurbo;
+      safeStorage.set('flying_best_score_turbo', state.bestScoreTurbo.toString());
     } else {
-      if (score > bestScoreNormal) {
-        bestScoreNormal = score;
-        isNewRecord = true;
-        safeStorage.set('flying_best_score_normal', bestScoreNormal.toString());
-        safeStorage.set('flying_best_score', bestScoreNormal.toString());
-      } else {
-        isNewRecord = false;
-      }
+      state.bestScoreNormal = roundResult.bestScore;
+      gameSave.bestScores.normal = state.bestScoreNormal;
+      safeStorage.set('flying_best_score_normal', state.bestScoreNormal.toString());
+      safeStorage.set('flying_best_score', state.bestScoreNormal.toString());
     }
+    persistGameSave();
 
-    // Cálculo de Moedas ganhas no desempenho da rodada:
-    // Modo normal: 1 por ponto | Modo turbo: 2 por ponto
-    const pointMult = (currentMode === GAME_MODE.TURBO) ? 2 : 1;
-    let earned = score * pointMult;
-
-    // Bônus por novo recorde
-    let bonusRecord = 0;
-    if (isNewRecord && score > 0) {
-      bonusRecord = 5;
-    }
-
-    // Bônus por medalha conquistada
-    let bonusMedal = 0;
-    if (score >= 50) {
-      bonusMedal = 35; // Platina
-    } else if (score >= 35) {
-      bonusMedal = 20; // Ouro
-    } else if (score >= 20) {
-      bonusMedal = 10; // Prata
-    } else if (score >= 10) {
-      bonusMedal = 5;  // Bronze
-    }
-
-    lastCoinsEarned = earned + bonusRecord + bonusMedal;
-    coins += lastCoinsEarned;
+    state.lastCoinsEarned = roundResult.reward.total;
+    state.coins += state.lastCoinsEarned;
     saveInventory();
 
-    if (lastCoinsEarned > 0) {
+    if (state.lastCoinsEarned > 0) {
       setTimeout(() => playSound('coin'), 350);
     }
 
-    scoreCounterAnimation = 0;
+    state.scoreCounterAnimation = 0;
   }
   function resetGame() {
-    currentState = STATE.READY;
+    state.currentState = STATE.READY;
     updateUIState();
-    score = 0;
-    scoreScale = 1.0;
+    state.score = 0;
+    state.scoreScale = 1.0;
     bird.reset();
     pipes.reset();
     particles.length = 0;
-    screenShake = 0;
-    flashAlpha = 0;
+    state.screenShake = 0;
+    state.flashAlpha = 0;
     playSound('swoosh');
   }
 
@@ -2251,17 +2325,17 @@
   // INTERFACE E MENUS
   // ----------------------------------------------------
   function drawScoreInGame() {
-    if (currentState !== STATE.PLAYING) return;
+    if (state.currentState !== STATE.PLAYING) return;
 
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    const text = score.toString();
+    const text = state.score.toString();
     const scoreY = 55;
 
     ctx.translate(GAME_WIDTH / 2, scoreY);
-    ctx.scale(scoreScale, scoreScale);
+    ctx.scale(state.scoreScale, state.scoreScale);
 
     ctx.font = 'bold 42px "Lilita One", "Fredoka", "Impact", "Arial Black", sans-serif';
 
@@ -2283,7 +2357,7 @@
     ctx.restore();
 
     // Emblema de Velocidade no Modo Turbo
-    if (currentMode === GAME_MODE.TURBO) {
+    if (state.currentMode === GAME_MODE.TURBO) {
       ctx.save();
       const mult = (pipes.currentSpeed / 2.4).toFixed(1);
       const isMax = pipes.currentSpeed >= 3.6;
@@ -2312,13 +2386,13 @@
   }
 
   function drawReadyScreen() {
-    if (currentState !== STATE.READY) return;
+    if (state.currentState !== STATE.READY) return;
 
     ctx.save();
     ctx.textAlign = 'center';
 
     // Título FLYING BIRD
-    const pulse = Math.sin(frames * 0.08) * 3;
+    const pulse = Math.sin(state.frames * 0.08) * 3;
     const titleY = 142 + pulse;
 
     ctx.font = '24px "Press Start 2P", monospace';
@@ -2330,7 +2404,7 @@
     ctx.fillText('FLYING BIRD', GAME_WIDTH / 2, titleY);
 
     // Seletor / Badge da Skin Selecionada
-    const skin = SKINS[currentSkinIndex];
+    const skin = SKINS[state.currentSkinIndex];
     const skinCardY = 285;
     const skinCardW = 220;
     const skinCardH = 32;
@@ -2362,7 +2436,7 @@
     const rightX = GAME_WIDTH / 2 + 5;
 
     // Card Modo Normal
-    const isNormal = currentMode === GAME_MODE.NORMAL;
+    const isNormal = state.currentMode === GAME_MODE.NORMAL;
     ctx.save();
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(leftX, modeCardY, cardW, cardH, 7);
@@ -2384,11 +2458,11 @@
 
     ctx.font = '6px "Press Start 2P", monospace';
     ctx.fillStyle = isNormal ? '#fde047' : '#64748b';
-    ctx.fillText(`Top: ${bestScoreNormal}`, leftX + cardW / 2, modeCardY + 39);
+    ctx.fillText(`Top: ${state.bestScoreNormal}`, leftX + cardW / 2, modeCardY + 39);
     ctx.restore();
 
     // Card Modo Turbo
-    const isTurbo = currentMode === GAME_MODE.TURBO;
+    const isTurbo = state.currentMode === GAME_MODE.TURBO;
     ctx.save();
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(rightX, modeCardY, cardW, cardH, 7);
@@ -2410,7 +2484,7 @@
 
     ctx.font = '6px "Press Start 2P", monospace';
     ctx.fillStyle = isTurbo ? '#fde047' : '#64748b';
-    ctx.fillText(`Top: ${bestScoreTurbo}`, rightX + cardW / 2, modeCardY + 39);
+    ctx.fillText(`Top: ${state.bestScoreTurbo}`, rightX + cardW / 2, modeCardY + 39);
     ctx.restore();
 
     // Dica de troca de modo
@@ -2445,7 +2519,7 @@
     ctx.restore();
   }
   function drawGameOverModal() {
-    if (currentState !== STATE.GAMEOVER) return;
+    if (state.currentState !== STATE.GAMEOVER) return;
 
     ctx.save();
     ctx.textAlign = 'center';
@@ -2480,7 +2554,7 @@
     ctx.fillStyle = '#78350f';
     ctx.fillText('MEDALHA', cardX + 60, cardY + 35);
 
-    drawMedal(cardX + 60, cardY + 85, score);
+    drawMedal(cardX + 60, cardY + 85, state.score);
 
     // Textos de Pontuação (à direita)
     ctx.textAlign = 'right';
@@ -2488,7 +2562,7 @@
     ctx.font = '9px "Press Start 2P", monospace';
     ctx.fillText('PONTOS', cardX + cardW - 20, cardY + 35);
 
-    const currentScoreText = Math.floor(scoreCounterAnimation).toString();
+    const currentScoreText = Math.floor(state.scoreCounterAnimation).toString();
     ctx.font = 'bold 24px "Lilita One", "Fredoka", "Impact", "Arial Black", sans-serif';
     ctx.lineWidth = 4.5;
     ctx.lineJoin = 'round';
@@ -2512,17 +2586,17 @@
 
     // Identificador do Modo jogado no Game Over
     ctx.font = '7px "Press Start 2P", monospace';
-    ctx.fillStyle = currentMode === GAME_MODE.TURBO ? '#ea580c' : '#15803d';
+    ctx.fillStyle = state.currentMode === GAME_MODE.TURBO ? '#ea580c' : '#15803d';
     ctx.textAlign = 'center';
-    ctx.fillText(currentMode === GAME_MODE.TURBO ? '⚡ MODO TURBO' : '🟢 MODO NORMAL', cardX + cardW / 2, cardY + cardH - 24);
+    ctx.fillText(state.currentMode === GAME_MODE.TURBO ? '⚡ MODO TURBO' : '🟢 MODO NORMAL', cardX + cardW / 2, cardY + cardH - 24);
 
     // Moedas ganhas na partida e total
     ctx.font = '7.5px "Press Start 2P", monospace';
     ctx.fillStyle = '#b45309';
-    ctx.fillText(`+${lastCoinsEarned} MOEDAS  (TOTAL: 🪙 ${coins})`, cardX + cardW / 2, cardY + cardH - 9);
+    ctx.fillText(`+${state.lastCoinsEarned} MOEDAS  (TOTAL: 🪙 ${state.coins})`, cardX + cardW / 2, cardY + cardH - 9);
 
     // Emblema "NOVO" se bateu o recorde
-    if (isNewRecord) {
+    if (state.isNewRecord) {
       ctx.fillStyle = '#ef4444';
       ctx.fillRect(cardX + cardW - 105, cardY + 84, 40, 14);
       ctx.fillStyle = '#ffffff';
@@ -2552,9 +2626,9 @@
     ctx.restore();
 
     // Botão / Instrução de Jogar Novamente
-    const canRestart = Date.now() - gameOverTime > 450;
+    const canRestart = Date.now() - state.gameOverTime > 450;
     if (canRestart) {
-      const pulse = Math.floor((frames / 20) % 2) === 0;
+      const pulse = Math.floor((state.frames / 20) % 2) === 0;
       if (pulse) {
         ctx.textAlign = 'center';
         ctx.font = '8.5px "Press Start 2P", monospace';
@@ -2750,11 +2824,11 @@
     ctx.stroke();
 
     // 7. Brilho cintilante giratório (Sparkle)
-    const sparkleAngle = frames * 0.05;
+    const sparkleAngle = state.frames * 0.05;
     const sparkleDist = 14;
     const sx = x + Math.cos(sparkleAngle) * sparkleDist;
     const sy = y + Math.sin(sparkleAngle) * sparkleDist;
-    drawSparkle(sx, sy, (frames % 30 < 15 ? 4 : 2.5));
+    drawSparkle(sx, sy, (state.frames % 30 < 15 ? 4 : 2.5));
 
     // 8. Nome do nível da medalha abaixo dela
     ctx.font = '7px "Press Start 2P", monospace';
@@ -2815,7 +2889,7 @@
   // TELA DA LOJA DE SKINS (STATE.SHOP) COM CONFIRMAÇÃO
   // ----------------------------------------------------
   function drawShopModal() {
-    if (currentState !== STATE.SHOP) return;
+    if (state.currentState !== STATE.SHOP) return;
 
     ctx.save();
 
@@ -2856,10 +2930,10 @@
 
     ctx.font = '8px "Press Start 2P", monospace';
     ctx.fillStyle = '#fde047';
-    ctx.fillText(`SALDO: 🪙 ${coins}`, GAME_WIDTH / 2, coinsBadgeY + 15);
+    ctx.fillText(`SALDO: 🪙 ${state.coins}`, GAME_WIDTH / 2, coinsBadgeY + 15);
 
     // Grid 2x2 de Skins (4 por página)
-    const startIdx = shopPage * SKINS_PER_PAGE;
+    const startIdx = state.shopPage * SKINS_PER_PAGE;
     const visibleSkins = SKINS.slice(startIdx, startIdx + SKINS_PER_PAGE);
 
     const cardW = 148;
@@ -2873,7 +2947,7 @@
       const row = Math.floor(i / 2);
       const cardX = colXs[col];
       const cardY = rowYs[row];
-      const isEquipped = currentSkinIndex === skinIndex;
+      const isEquipped = state.currentSkinIndex === skinIndex;
       const isUnlocked = isSkinUnlocked(skin.id);
 
       // Fundo do Card
@@ -2907,7 +2981,7 @@
       // Pré-visualização Animada do Pássaro no centro do Card
       ctx.save();
       const previewX = cardX + cardW / 2;
-      const previewY = cardY + 76 + Math.sin((frames + i * 15) * 0.1) * 3;
+      const previewY = cardY + 76 + Math.sin((state.frames + i * 15) * 0.1) * 3;
       ctx.translate(previewX, previewY);
 
       // Sombra do pássaro na vitrine
@@ -2953,7 +3027,7 @@
         ctx.textAlign = 'center';
         ctx.fillText('EQUIPAR', btnX + btnW / 2, btnY + 15);
       } else {
-        const canAfford = coins >= skin.price;
+        const canAfford = state.coins >= skin.price;
         ctx.fillStyle = canAfford ? '#d97706' : '#475569';
         ctx.fill();
         ctx.strokeStyle = canAfford ? '#facc15' : '#64748b';
@@ -2973,8 +3047,8 @@
     const navY = 432;
     // Botão Página Anterior
     ctx.save();
-    ctx.fillStyle = shopPage > 0 ? '#1e293b' : 'rgba(30, 41, 59, 0.4)';
-    ctx.strokeStyle = shopPage > 0 ? '#38bdf8' : '#475569';
+    ctx.fillStyle = state.shopPage > 0 ? '#1e293b' : 'rgba(30, 41, 59, 0.4)';
+    ctx.strokeStyle = state.shopPage > 0 ? '#38bdf8' : '#475569';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(30, navY, 76, 26, 5);
@@ -2983,18 +3057,18 @@
     ctx.stroke();
 
     ctx.font = '7px "Press Start 2P", monospace';
-    ctx.fillStyle = shopPage > 0 ? '#ffffff' : '#64748b';
+    ctx.fillStyle = state.shopPage > 0 ? '#ffffff' : '#64748b';
     ctx.textAlign = 'center';
     ctx.fillText('◀ ANT', 68, navY + 16);
 
     // Indicador Central de Página
     ctx.font = '8px "Press Start 2P", monospace';
     ctx.fillStyle = '#facc15';
-    ctx.fillText(`PÁG ${shopPage + 1}/2`, GAME_WIDTH / 2, navY + 16);
+    ctx.fillText(`PÁG ${state.shopPage + 1}/2`, GAME_WIDTH / 2, navY + 16);
 
     // Botão Próxima Página
-    ctx.fillStyle = shopPage < 1 ? '#1e293b' : 'rgba(30, 41, 59, 0.4)';
-    ctx.strokeStyle = shopPage < 1 ? '#38bdf8' : '#475569';
+    ctx.fillStyle = state.shopPage < 1 ? '#1e293b' : 'rgba(30, 41, 59, 0.4)';
+    ctx.strokeStyle = state.shopPage < 1 ? '#38bdf8' : '#475569';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(GAME_WIDTH - 106, navY, 76, 26, 5);
@@ -3003,7 +3077,7 @@
     ctx.stroke();
 
     ctx.font = '7px "Press Start 2P", monospace';
-    ctx.fillStyle = shopPage < 1 ? '#ffffff' : '#64748b';
+    ctx.fillStyle = state.shopPage < 1 ? '#ffffff' : '#64748b';
     ctx.fillText('PRÓX ▶', GAME_WIDTH - 68, navY + 16);
     ctx.restore();
 
@@ -3028,8 +3102,8 @@
     ctx.restore();
 
     // Modal de Confirmação de Compra (se o jogador clicou para comprar)
-    if (confirmingSkinPurchase !== null) {
-      drawPurchaseConfirmModal(confirmingSkinPurchase);
+    if (state.confirmingSkinPurchase !== null) {
+      drawPurchaseConfirmModal(state.confirmingSkinPurchase);
     }
 
     ctx.restore();
@@ -3100,10 +3174,10 @@
     ctx.fillStyle = '#facc15';
     ctx.fillText(`Preço: 🪙 ${skin.price}`, GAME_WIDTH / 2, boxY + 158);
 
-    const remaining = coins - skin.price;
+    const remaining = state.coins - skin.price;
     ctx.font = '6.5px "Press Start 2P", monospace';
     ctx.fillStyle = '#94a3b8';
-    ctx.fillText(`Saldo: 🪙 ${coins}  ➔  🪙 ${remaining}`, GAME_WIDTH / 2, boxY + 174);
+    ctx.fillText(`Saldo: 🪙 ${state.coins}  ➔  🪙 ${remaining}`, GAME_WIDTH / 2, boxY + 174);
 
     // Botões de Ação
     const btnY = boxY + boxH - 42;
@@ -3143,7 +3217,7 @@
     ctx.restore();
   }
   function drawPauseScreen() {
-    if (currentState !== STATE.PAUSED) return;
+    if (state.currentState !== STATE.PAUSED) return;
 
     ctx.save();
     ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
@@ -3172,7 +3246,7 @@
   function handleAction(e, isClickOnCanvas = false) {
     initAudio();
 
-    if (currentState === STATE.SHOP) {
+    if (state.currentState === STATE.SHOP) {
       if (isClickOnCanvas && e) {
         const rect = canvas.getBoundingClientRect();
         // Usar GAME_WIDTH / GAME_HEIGHT para que a escala seja independente do buffer interno (360 vs 720)
@@ -3184,24 +3258,24 @@
         const canvasY = (clientY - rect.top) * scaleY;
 
         // Se o modal de confirmação estiver aberto, trata somente os botões de confirmação
-        if (confirmingSkinPurchase !== null) {
+        if (state.confirmingSkinPurchase !== null) {
           // Botões no diálogo: btnY: 365..393
           if (canvasY >= 360 && canvasY <= 395) {
             // Confirmar (x: 58..170)
             if (canvasX >= 54 && canvasX <= 174) {
-              buyOrEquipSkin(confirmingSkinPurchase, true);
+              buyOrEquipSkin(state.confirmingSkinPurchase, true);
               return;
             }
             // Cancelar (x: 186..298)
             if (canvasX >= 184 && canvasX <= 304) {
-              confirmingSkinPurchase = null;
+              state.confirmingSkinPurchase = null;
               playSound('swoosh');
               return;
             }
           }
           // Clique fora da caixa de diálogo cancela a confirmação
           if (canvasX < 40 || canvasX > 320 || canvasY < 175 || canvasY > 410) {
-            confirmingSkinPurchase = null;
+            state.confirmingSkinPurchase = null;
             playSound('swoosh');
             return;
           }
@@ -3222,8 +3296,8 @@
 
         // Botão Navegação Anterior (x: 30..106, y: 430..460)
         if (canvasX >= 25 && canvasX <= 110 && canvasY >= 428 && canvasY <= 462) {
-          if (shopPage > 0) {
-            shopPage--;
+          if (state.shopPage > 0) {
+            state.shopPage--;
             playSound('swoosh');
           }
           return;
@@ -3231,15 +3305,15 @@
 
         // Botão Navegação Próximo (x: GAME_WIDTH - 106..-30, y: 430..460)
         if (canvasX >= GAME_WIDTH - 110 && canvasX <= GAME_WIDTH - 25 && canvasY >= 428 && canvasY <= 462) {
-          if (shopPage < 1) {
-            shopPage++;
+          if (state.shopPage < 1) {
+            state.shopPage++;
             playSound('swoosh');
           }
           return;
         }
 
         // Clique nos Cards de Skins (2x2)
-        const startIdx = shopPage * SKINS_PER_PAGE;
+        const startIdx = state.shopPage * SKINS_PER_PAGE;
         const colXs = [24, 188];
         const rowYs = [88, 260];
         const cardW = 148;
@@ -3262,7 +3336,7 @@
       return;
     }
 
-    if (currentState === STATE.READY) {
+    if (state.currentState === STATE.READY) {
       if (isClickOnCanvas && e) {
         // Obter coordenadas no canvas nativo
         const rect = canvas.getBoundingClientRect();
@@ -3292,14 +3366,14 @@
         }
       }
 
-      currentState = STATE.PLAYING;
+      state.currentState = STATE.PLAYING;
       updateUIState();
       bird.flap();
-    } else if (currentState === STATE.PLAYING) {
+    } else if (state.currentState === STATE.PLAYING) {
       bird.flap();
-    } else if (currentState === STATE.GAMEOVER) {
+    } else if (state.currentState === STATE.GAMEOVER) {
       // Só reinicia após pequeno atraso de 400ms para evitar cliques acidentais
-      if (Date.now() - gameOverTime > 400) {
+      if (Date.now() - state.gameOverTime > 400) {
         if (isClickOnCanvas && e) {
           const rect = canvas.getBoundingClientRect();
           const scaleX = GAME_WIDTH / rect.width;
@@ -3321,16 +3395,16 @@
   }
 
   // Eventos de teclado
-  window.addEventListener('keydown', (e) => {
+  function handleKeyDown(e) {
     // Teclas no modal de confirmação de compra na loja
-    if (currentState === STATE.SHOP && confirmingSkinPurchase !== null) {
+    if (state.currentState === STATE.SHOP && state.confirmingSkinPurchase !== null) {
       if (e.code === 'Enter' || e.code === 'Space') {
         e.preventDefault();
-        buyOrEquipSkin(confirmingSkinPurchase, true);
+        buyOrEquipSkin(state.confirmingSkinPurchase, true);
         return;
       } else if (e.code === 'Escape') {
         e.preventDefault();
-        confirmingSkinPurchase = null;
+        state.confirmingSkinPurchase = null;
         playSound('swoosh');
         return;
       }
@@ -3340,12 +3414,12 @@
       e.preventDefault();
       handleAction();
     } else if (e.code === 'KeyS') {
-      if (currentState === STATE.READY) {
+      if (state.currentState === STATE.READY) {
         e.preventDefault();
         cycleSkin();
       }
     } else if (e.code === 'KeyM') {
-      if (currentState === STATE.READY) {
+      if (state.currentState === STATE.READY) {
         e.preventDefault();
         toggleMode();
       }
@@ -3354,36 +3428,36 @@
       toggleGraphicsMode();
     } else if (e.code === 'KeyL') {
       e.preventDefault();
-      if (currentState === STATE.SHOP) {
+      if (state.currentState === STATE.SHOP) {
         closeShop();
-      } else if (currentState === STATE.READY || currentState === STATE.GAMEOVER) {
+      } else if (state.currentState === STATE.READY || state.currentState === STATE.GAMEOVER) {
         openShop();
       }
     } else if (e.code === 'Escape') {
-      if (currentState === STATE.SHOP) {
+      if (state.currentState === STATE.SHOP) {
         e.preventDefault();
         closeShop();
-      } else if (currentState === STATE.PLAYING || currentState === STATE.PAUSED) {
+      } else if (state.currentState === STATE.PLAYING || state.currentState === STATE.PAUSED) {
         e.preventDefault();
         togglePause();
       }
     } else if (e.code === 'ArrowLeft') {
-      if (currentState === STATE.SHOP && shopPage > 0) {
+      if (state.currentState === STATE.SHOP && state.shopPage > 0) {
         e.preventDefault();
-        shopPage--;
+        state.shopPage--;
         playSound('swoosh');
       }
     } else if (e.code === 'ArrowRight') {
-      if (currentState === STATE.SHOP && shopPage < 1) {
+      if (state.currentState === STATE.SHOP && state.shopPage < 1) {
         e.preventDefault();
-        shopPage++;
+        state.shopPage++;
         playSound('swoosh');
       }
     } else if (e.code === 'KeyP') {
       e.preventDefault();
       togglePause();
     }
-  });
+  }
   // Toast flutuante unificado para trocas de skin, modo e gráficos
   function drawNotificationToast() {
     if (toastTimer <= 0) return;
@@ -3413,27 +3487,11 @@
 
     ctx.restore();
   }
-  if (window.PointerEvent) {
-    canvas.addEventListener('pointerdown', (e) => {
-      if (e.isPrimary) {
-        e.preventDefault();
-        handleAction(e, true);
-      }
-    }, { passive: false });
-  } else {
-    // Eventos de toque no Canvas (Mobile legado)
-    canvas.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      handleAction(e, true);
-    }, { passive: false });
-
-    // Eventos de clique do Mouse no Canvas (Desktop legado)
-    canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 0) {
-        handleAction(e, true);
-      }
-    });
-  }
+  window.FlyingBirdInput.bindInput({
+    canvas,
+    onCanvasAction: handleAction,
+    onKeyDown: handleKeyDown
+  });
 
   // ----------------------------------------------------
   // LOOP PRINCIPAL COM TIMESTEP FIXO (60 FPS DETERMINÍSTICO)
@@ -3446,43 +3504,43 @@
   let accumulator = 0;
 
   function updateGameLogic() {
-    frames++;
+    state.frames++;
 
     // Se estiver na loja, apenas anima o pássaro e decrementa o toast
-    if (currentState === STATE.SHOP) {
-      bird.hoverOffset = Math.sin(frames * 0.1) * 6;
-      bird.flapIndex = Math.floor((frames / 7) % 3);
+    if (state.currentState === STATE.SHOP) {
+      bird.hoverOffset = Math.sin(state.frames * 0.1) * 6;
+      bird.flapIndex = Math.floor((state.frames / 7) % 3);
       if (toastTimer > 0) toastTimer--;
       return;
     }
 
     // Atualização de física e lógica
-    if (currentState !== STATE.PAUSED) {
+    if (state.currentState !== STATE.PAUSED) {
       updateBackground();
       bird.update();
       pipes.update();
       updateParticles();
 
       // Atualizar efeitos de tela
-      if (screenShake > 0) screenShake *= 0.88;
-      if (screenShake < 0.2) screenShake = 0;
+      if (state.screenShake > 0) state.screenShake *= 0.88;
+      if (state.screenShake < 0.2) state.screenShake = 0;
 
-      if (flashAlpha > 0) flashAlpha -= 0.08;
-      if (flashAlpha < 0) flashAlpha = 0;
+      if (state.flashAlpha > 0) state.flashAlpha -= 0.08;
+      if (state.flashAlpha < 0) state.flashAlpha = 0;
 
       // Suavizar animação de pop ao marcar ponto
-      if (scoreScale > 1.005) {
-        scoreScale += (1.0 - scoreScale) * 0.18;
+      if (state.scoreScale > 1.005) {
+        state.scoreScale += (1.0 - state.scoreScale) * 0.18;
       } else {
-        scoreScale = 1.0;
+        state.scoreScale = 1.0;
       }
 
       // Animar contagem do score no game over
-      if (currentState === STATE.GAMEOVER) {
-        if (scoreCounterAnimation < score) {
-          scoreCounterAnimation += 0.5;
+      if (state.currentState === STATE.GAMEOVER) {
+        if (state.scoreCounterAnimation < state.score) {
+          state.scoreCounterAnimation += 0.5;
         } else {
-          scoreCounterAnimation = score;
+          state.scoreCounterAnimation = state.score;
         }
       }
     }
@@ -3497,14 +3555,14 @@
     ctx.save();
 
     // No modo HD, aplica escala 2x para renderização Retina em 720x1280
-    if (graphicsMode === GRAPHICS_MODE.HD) {
+    if (state.graphicsMode === GRAPHICS_MODE.HD) {
       ctx.scale(2, 2);
     }
 
     // Aplicar Screen Shake em colisões
-    if (screenShake > 0) {
-      const shakeX = (Math.random() - 0.5) * screenShake * 2;
-      const shakeY = (Math.random() - 0.5) * screenShake * 2;
+    if (state.screenShake > 0) {
+      const shakeX = (Math.random() - 0.5) * state.screenShake * 2;
+      const shakeY = (Math.random() - 0.5) * state.screenShake * 2;
       ctx.translate(shakeX, shakeY);
     }
 
@@ -3515,8 +3573,8 @@
     drawParticles();
 
     // Flash branco na tela
-    if (flashAlpha > 0) {
-      ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+    if (state.flashAlpha > 0) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${state.flashAlpha})`;
       ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
     }
 
@@ -3580,4 +3638,3 @@
   // Iniciar loop do jogo
   requestAnimationFrame(loop);
 })();
-

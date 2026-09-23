@@ -24,7 +24,7 @@
       <!-- Overlay de controles na tela para mobile/desktop -->
       <div id="ui-overlay">
         <!-- Botão de som / mudo -->
-        <button id="sound-btn" title="Ativar/Desativar Som" aria-label="Som">
+        <button id="sound-btn" title="Ativar/Desativar Som" aria-label="Som" aria-pressed="false">
           <span id="sound-icon">🔊</span>
         </button>
         <!-- Botão de trocar skin -->
@@ -32,15 +32,15 @@
           <span id="skin-icon">🕶️</span>
         </button>
         <!-- Botão de alternar gráficos (Retrô / HD) -->
-        <button id="graphics-btn" title="Alternar Gráficos (Retrô / HD)" aria-label="Gráficos">
+        <button id="graphics-btn" title="Alternar Gráficos (Retrô / HD)" aria-label="Gráficos" aria-pressed="true">
           <span id="graphics-icon">✨</span>
         </button>
         <!-- Botão da Loja de Skins -->
-        <button id="shop-btn" title="Abrir Loja de Skins" aria-label="Loja">
+        <button id="shop-btn" title="Abrir Loja de Skins" aria-label="Loja" aria-expanded="false">
           <span id="shop-icon">🛒</span>
         </button>
         <!-- Botão de pausa -->
-        <button id="pause-btn" title="Pausar jogo" aria-label="Pausar">
+        <button id="pause-btn" title="Pausar jogo" aria-label="Pausar" aria-pressed="false">
           <span id="pause-icon">⏸️</span>
         </button>
       </div>
@@ -61,7 +61,13 @@
     </div>
   </div>
 
+  <script src="audio.js"></script>
+  <script src="config.js"></script>
+  <script src="state.js"></script>
+  <script src="input.js"></script>
+  <script src="shop.js"></script>
+  <script src="physics.js"></script>
+  <script src="score.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
-
