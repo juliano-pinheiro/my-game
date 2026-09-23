@@ -1,0 +1,10 @@
+{
+  "name": "flying-bird",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Flying Bird - Retro Edition",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
