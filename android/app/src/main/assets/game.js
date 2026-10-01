@@ -689,10 +689,13 @@
   function drawParticles() {
     for (const p of particles) {
       ctx.save();
-      ctx.globalAlpha = Math.max(0, p.alpha);
+      const particleAlpha = Number.isFinite(p.previousAlpha)
+        ? interpolate(p.previousAlpha, p.alpha)
+        : p.alpha;
+      ctx.globalAlpha = Math.max(0, particleAlpha);
       ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.arc(interpolate(p.previousX, p.x), interpolate(p.previousY, p.y), p.radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -720,6 +723,8 @@
 
   let groundScrollOffset = 0;
   let cityScrollOffset = 0;
+  let previousGroundScrollOffset = 0;
+  let previousCityScrollOffset = 0;
 
   function updateBackground() {
     if (state.currentState === STATE.GAMEOVER || state.currentState === STATE.PAUSED) return;
@@ -739,6 +744,39 @@
     // Movimento do cenário e do chão
     cityScrollOffset = (cityScrollOffset + 0.6 * speedRatio) % 360;
     groundScrollOffset = (groundScrollOffset + currentSpeed) % 24;
+  }
+
+  function interpolate(previous, current) {
+    if (!Number.isFinite(previous)) return current;
+    return previous + (current - previous) * renderAlpha;
+  }
+
+  function interpolateWrapped(previous, current, period) {
+    let distance = current - previous;
+    if (distance > period / 2) distance -= period;
+    if (distance < -period / 2) distance += period;
+    return (previous + distance * renderAlpha + period) % period;
+  }
+
+  function captureRenderState() {
+    bird.previousX = bird.x;
+    bird.previousY = bird.y;
+    bird.previousRotation = bird.rotation;
+    bird.previousHoverOffset = bird.hoverOffset;
+    pipes.items.forEach((pipe) => {
+      pipe.previousX = pipe.x;
+    });
+    particles.forEach((particle) => {
+      particle.previousX = particle.x;
+      particle.previousY = particle.y;
+      particle.previousAlpha = particle.alpha;
+    });
+    clouds.forEach((cloud) => {
+      cloud.previousX = cloud.x;
+    });
+    previousCityScrollOffset = cityScrollOffset;
+    previousGroundScrollOffset = groundScrollOffset;
+    previousScoreScale = state.scoreScale;
   }
 
   function drawSkyAndCity() {
@@ -779,7 +817,11 @@
       // Nuvens HD com sombreado suave volumétrico
       clouds.forEach(c => {
         ctx.save();
-        ctx.translate(c.x, c.y);
+        const cloudX = Number.isFinite(c.previousX)
+          && Math.abs(c.x - c.previousX) <= GAME_WIDTH / 2
+          ? interpolate(c.previousX, c.x)
+          : c.x;
+        ctx.translate(cloudX, c.y);
         ctx.scale(c.scale, c.scale);
 
         // Sombra suave da nuvem
@@ -811,7 +853,7 @@
       // Silhueta dos Prédios com profundidade HD
       ctx.save();
       for (let loop = 0; loop < 2; loop++) {
-        const offsetX = loop * 360 - cityScrollOffset;
+        const offsetX = loop * 360 - interpolateWrapped(previousCityScrollOffset, cityScrollOffset, 360);
         citySilhouettes.forEach(b => {
           const bx = offsetX + b.x;
           if (bx + b.w > -10 && bx < GAME_WIDTH + 10) {
@@ -857,7 +899,11 @@
       ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
       clouds.forEach(c => {
         ctx.save();
-        ctx.translate(c.x, c.y);
+        const cloudX = Number.isFinite(c.previousX)
+          && Math.abs(c.x - c.previousX) <= GAME_WIDTH / 2
+          ? interpolate(c.previousX, c.x)
+          : c.x;
+        ctx.translate(cloudX, c.y);
         ctx.scale(c.scale, c.scale);
         ctx.beginPath();
         ctx.arc(0, 0, 20, 0, Math.PI * 2);
@@ -872,7 +918,7 @@
       ctx.save();
       ctx.fillStyle = '#9fe3ba';
       for (let loop = 0; loop < 2; loop++) {
-        const offsetX = loop * 360 - cityScrollOffset;
+        const offsetX = loop * 360 - interpolateWrapped(previousCityScrollOffset, cityScrollOffset, 360);
         citySilhouettes.forEach(b => {
           const bx = offsetX + b.x;
           if (bx + b.w > -10 && bx < GAME_WIDTH + 10) {
@@ -939,7 +985,7 @@
       ctx.clip();
       ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
       for (let x = -24; x < GAME_WIDTH + 48; x += 18) {
-        const currentX = x - groundScrollOffset;
+        const currentX = x - interpolateWrapped(previousGroundScrollOffset, groundScrollOffset, 24);
         ctx.beginPath();
         ctx.moveTo(currentX, GROUND_Y + 20);
         ctx.lineTo(currentX + 8, GROUND_Y + 20);
@@ -970,7 +1016,7 @@
 
       ctx.fillStyle = '#cbb870';
       for (let x = -24; x < GAME_WIDTH + 48; x += 18) {
-        const currentX = x - groundScrollOffset;
+        const currentX = x - interpolateWrapped(previousGroundScrollOffset, groundScrollOffset, 24);
         ctx.beginPath();
         ctx.moveTo(currentX, GROUND_Y + 17);
         ctx.lineTo(currentX + 10, GROUND_Y + 17);
@@ -1001,6 +1047,10 @@
       this.rotation = 0;
       this.flapIndex = 0;
       this.hoverOffset = 0;
+      this.previousX = this.x;
+      this.previousY = this.y;
+      this.previousRotation = this.rotation;
+      this.previousHoverOffset = this.hoverOffset;
     },
 
     flap() {
@@ -1111,9 +1161,11 @@
 
     draw() {
       ctx.save();
-      const drawY = state.currentState === STATE.READY ? (this.y + this.hoverOffset) : this.y;
-      ctx.translate(this.x, drawY);
-      ctx.rotate(this.rotation);
+      const drawX = interpolate(this.previousX, this.x);
+      const drawY = interpolate(this.previousY, this.y)
+        + interpolate(this.previousHoverOffset, this.hoverOffset);
+      ctx.translate(drawX, drawY);
+      ctx.rotate(interpolate(this.previousRotation, this.rotation));
 
       // Sombra sutil projetada
       ctx.fillStyle = 'rgba(0,0,0,0.18)';
@@ -1528,7 +1580,7 @@
       ctx.stroke();
 
       // Ponto de luz cintilante na órbita
-      const orbitAngle = state.frames * 0.1;
+      const orbitAngle = renderFrame * 0.1;
       const ox = Math.cos(orbitAngle) * 23;
       const oy = Math.sin(orbitAngle) * 7.5;
       const rotOx = ox * Math.cos(-0.35) - oy * Math.sin(-0.35);
@@ -1830,7 +1882,7 @@
     // --- SKIN 3: FÊNIX MÍSTICA (Plumagem de fogo radiante) ---
     drawPhoenixSkin() {
       // 3 Penas de chama na crista
-      const flameFlicker = Math.sin(state.frames * 0.2) * 2;
+      const flameFlicker = Math.sin(renderFrame * 0.2) * 2;
       ctx.fillStyle = '#dc2626';
       ctx.beginPath();
       ctx.ellipse(-10, -13 + flameFlicker, 4, 9, -0.4, 0, Math.PI * 2);
@@ -2117,12 +2169,13 @@
       for (const p of this.items) {
         const bottomY = p.top + this.gap;
         const bottomHeight = GROUND_Y - bottomY;
+        const pipeX = interpolate(p.previousX, p.x);
 
         // --- CANO SUPERIOR ---
-        drawSinglePipe(p.x, 0, this.width, p.top, true, this.capHeight, this.capOverhang);
+        drawSinglePipe(pipeX, 0, this.width, p.top, true, this.capHeight, this.capOverhang);
 
         // --- CANO INFERIOR ---
-        drawSinglePipe(p.x, bottomY, this.width, bottomHeight, false, this.capHeight, this.capOverhang);
+        drawSinglePipe(pipeX, bottomY, this.width, bottomHeight, false, this.capHeight, this.capOverhang);
       }
     }
   };
@@ -2336,7 +2389,8 @@
     const scoreY = 55;
 
     ctx.translate(GAME_WIDTH / 2, scoreY);
-    ctx.scale(state.scoreScale, state.scoreScale);
+    const scoreScale = interpolate(previousScoreScale, state.scoreScale);
+    ctx.scale(scoreScale, scoreScale);
 
     ctx.font = 'bold 42px "Lilita One", "Fredoka", "Impact", "Arial Black", sans-serif';
 
@@ -2393,7 +2447,7 @@
     ctx.textAlign = 'center';
 
     // Título FLYING BIRD
-    const pulse = Math.sin(state.frames * 0.08) * 3;
+    const pulse = Math.sin(renderFrame * 0.08) * 3;
     const titleY = 142 + pulse;
 
     ctx.font = '28px "Fredoka", "Trebuchet MS", sans-serif';
@@ -2629,7 +2683,7 @@
     // Botão / Instrução de Jogar Novamente
     const canRestart = Date.now() - state.gameOverTime > 450;
     if (canRestart) {
-      const pulse = Math.floor((state.frames / 20) % 2) === 0;
+      const pulse = Math.floor((renderFrame / 20) % 2) === 0;
       if (pulse) {
         ctx.textAlign = 'center';
         ctx.font = '10px "Fredoka", "Trebuchet MS", sans-serif';
@@ -2825,11 +2879,11 @@
     ctx.stroke();
 
     // 7. Brilho cintilante giratório (Sparkle)
-    const sparkleAngle = state.frames * 0.05;
+    const sparkleAngle = renderFrame * 0.05;
     const sparkleDist = 14;
     const sx = x + Math.cos(sparkleAngle) * sparkleDist;
     const sy = y + Math.sin(sparkleAngle) * sparkleDist;
-    drawSparkle(sx, sy, (state.frames % 30 < 15 ? 4 : 2.5));
+    drawSparkle(sx, sy, (renderFrame % 30 < 15 ? 4 : 2.5));
 
     // 8. Nome do nível da medalha abaixo dela
     ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
@@ -2982,7 +3036,7 @@
       // Pré-visualização Animada do Pássaro no centro do Card
       ctx.save();
       const previewX = cardX + cardW / 2;
-      const previewY = cardY + 76 + Math.sin((state.frames + i * 15) * 0.1) * 3;
+      const previewY = cardY + 76 + Math.sin((renderFrame + i * 15) * 0.1) * 3;
       ctx.translate(previewX, previewY);
 
       // Sombra do pássaro na vitrine
@@ -3503,6 +3557,9 @@
   const MAX_ACCUMULATOR = 100;    // Previne saltos bruscos se o app for minimizado/bloqueado
   let lastTime = 0;
   let accumulator = 0;
+  let renderAlpha = 1;
+  let renderFrame = 0;
+  let previousScoreScale = state.scoreScale;
 
   function updateGameLogic() {
     state.frames++;
@@ -3610,11 +3667,15 @@
 
     // Executa os passos de física exatamente à taxa fixa de 60Hz
     while (accumulator >= STEP) {
+      captureRenderState();
       updateGameLogic();
       accumulator -= STEP;
     }
 
-    // Renderiza na taxa nativa da tela (60Hz, 90Hz, 120Hz)
+    renderAlpha = accumulator / STEP;
+    renderFrame = Math.max(0, state.frames - 1 + renderAlpha);
+
+    // Renderiza em cada quadro disponível e interpola entre os passos de física.
     render();
 
     requestAnimationFrame(loop);
@@ -3629,11 +3690,13 @@
   window.addEventListener('focus', () => {
     lastTime = 0;
     accumulator = 0;
+    captureRenderState();
   });
 
   document.addEventListener('visibilitychange', () => {
     lastTime = 0;
     accumulator = 0;
+    captureRenderState();
   });
 
   // Iniciar loop do jogo
