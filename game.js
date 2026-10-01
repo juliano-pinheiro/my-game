@@ -128,6 +128,7 @@
   }
 
   function applyGraphicsModeResolution() {
+    canvas.classList.toggle('graphics-retro', state.graphicsMode === GRAPHICS_MODE.RETRO);
     if (state.graphicsMode === GRAPHICS_MODE.HD) {
       // Buffer 2x de alta densidade (Retina/AMOLED) para zero serrilhado
       canvas.width = 720;
@@ -2362,7 +2363,7 @@
       const mult = (pipes.currentSpeed / 2.4).toFixed(1);
       const isMax = pipes.currentSpeed >= 3.6;
       const badgeText = isMax ? `⚡ TURBO MAX (${mult}x)` : `⚡ TURBO ${mult}x`;
-      ctx.font = '7.5px "Press Start 2P", monospace';
+      ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
       ctx.textAlign = 'center';
 
       const badgeW = isMax ? 138 : 118;
@@ -2395,7 +2396,7 @@
     const pulse = Math.sin(state.frames * 0.08) * 3;
     const titleY = 142 + pulse;
 
-    ctx.font = '24px "Press Start 2P", monospace';
+    ctx.font = '28px "Fredoka", "Trebuchet MS", sans-serif';
     // Sombra do título
     ctx.fillStyle = '#1e293b';
     ctx.fillText('FLYING BIRD', GAME_WIDTH / 2 + 3, titleY + 3);
@@ -2420,11 +2421,11 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '8.5px "Press Start 2P", monospace';
+    ctx.font = '10px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#facc15';
     ctx.fillText(skin.icon + ' ' + skin.name, GAME_WIDTH / 2, skinCardY + 14);
 
-    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.font = '8px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#94a3b8';
     ctx.fillText('[S] ou Toque p/ Trocar Skin', GAME_WIDTH / 2, skinCardY + 25);
 
@@ -2448,15 +2449,15 @@
     ctx.strokeStyle = isNormal ? '#34d399' : '#475569';
     ctx.stroke();
 
-    ctx.font = isNormal ? 'bold 8.5px "Press Start 2P", monospace' : '8px "Press Start 2P", monospace';
+    ctx.font = isNormal ? 'bold 10px "Fredoka", "Trebuchet MS", sans-serif' : '10px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = isNormal ? '#a7f3d0' : '#94a3b8';
     ctx.fillText('🟢 NORMAL', leftX + cardW / 2, modeCardY + 16);
 
-    ctx.font = '6.5px "Press Start 2P", monospace';
+    ctx.font = '8px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = isNormal ? '#6ee7b7' : '#64748b';
     ctx.fillText('Clássico', leftX + cardW / 2, modeCardY + 28);
 
-    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.font = '8px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = isNormal ? '#fde047' : '#64748b';
     ctx.fillText(`Top: ${state.bestScoreNormal}`, leftX + cardW / 2, modeCardY + 39);
     ctx.restore();
@@ -2474,26 +2475,26 @@
     ctx.strokeStyle = isTurbo ? '#f59e0b' : '#475569';
     ctx.stroke();
 
-    ctx.font = isTurbo ? 'bold 8.5px "Press Start 2P", monospace' : '8px "Press Start 2P", monospace';
+    ctx.font = isTurbo ? 'bold 10px "Fredoka", "Trebuchet MS", sans-serif' : '10px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = isTurbo ? '#fde047' : '#94a3b8';
     ctx.fillText('⚡ TURBO', rightX + cardW / 2, modeCardY + 16);
 
-    ctx.font = '6.5px "Press Start 2P", monospace';
+    ctx.font = '8px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = isTurbo ? '#fbbf24' : '#64748b';
     ctx.fillText('Progressivo', rightX + cardW / 2, modeCardY + 28);
 
-    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.font = '8px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = isTurbo ? '#fde047' : '#64748b';
     ctx.fillText(`Top: ${state.bestScoreTurbo}`, rightX + cardW / 2, modeCardY + 39);
     ctx.restore();
 
     // Dica de troca de modo
-    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.font = '8px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#cbd5e1';
     ctx.fillText('[M] ou Toque para escolher modo', GAME_WIDTH / 2, modeCardY + cardH + 10);
 
     // Subtítulo / Instrução de Voo
-    ctx.font = '9px "Press Start 2P", monospace';
+    ctx.font = '11px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText('CLIQUE OU ESPAÇO PARA JOGAR', GAME_WIDTH / 2, 418);
 
@@ -2508,11 +2509,11 @@
     ctx.strokeRect(GAME_WIDTH / 2 - playBtnW / 2, playBtnY, playBtnW, playBtnH);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.font = '12px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillText('JOGAR', GAME_WIDTH / 2, playBtnY + 22);
 
     // Recorde Atual do modo selecionado
-    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#fde047';
     ctx.fillText(`🏆 RECORDE ${isTurbo ? 'TURBO' : 'NORMAL'}: ${getBestScore()}`, GAME_WIDTH / 2, 495);
 
@@ -2526,7 +2527,7 @@
 
     // Banner "GAME OVER"
     const bannerY = 145;
-    ctx.font = '22px "Press Start 2P", monospace';
+    ctx.font = '24px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#000000';
     ctx.fillText('FIM DE JOGO', GAME_WIDTH / 2 + 3, bannerY + 3);
     ctx.fillStyle = '#ef4444';
@@ -2550,7 +2551,7 @@
     ctx.fillRect(cardX + 8, cardY + 8, cardW - 16, cardH - 16);
 
     // Medalha (à esquerda)
-    ctx.font = '9px "Press Start 2P", monospace';
+    ctx.font = '11px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#78350f';
     ctx.fillText('MEDALHA', cardX + 60, cardY + 35);
 
@@ -2559,7 +2560,7 @@
     // Textos de Pontuação (à direita)
     ctx.textAlign = 'right';
     ctx.fillStyle = '#b45309';
-    ctx.font = '9px "Press Start 2P", monospace';
+    ctx.font = '11px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillText('PONTOS', cardX + cardW - 20, cardY + 35);
 
     const currentScoreText = Math.floor(state.scoreCounterAnimation).toString();
@@ -2572,7 +2573,7 @@
     ctx.fillText(currentScoreText, cardX + cardW - 20, cardY + 62);
 
     ctx.fillStyle = '#b45309';
-    ctx.font = '9px "Press Start 2P", monospace';
+    ctx.font = '11px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillText('MELHOR', cardX + cardW - 20, cardY + 95);
 
     const bestScoreText = getBestScore().toString();
@@ -2585,13 +2586,13 @@
     ctx.fillText(bestScoreText, cardX + cardW - 20, cardY + 122);
 
     // Identificador do Modo jogado no Game Over
-    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = state.currentMode === GAME_MODE.TURBO ? '#ea580c' : '#15803d';
     ctx.textAlign = 'center';
     ctx.fillText(state.currentMode === GAME_MODE.TURBO ? '⚡ MODO TURBO' : '🟢 MODO NORMAL', cardX + cardW / 2, cardY + cardH - 24);
 
     // Moedas ganhas na partida e total
-    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#b45309';
     ctx.fillText(`+${state.lastCoinsEarned} MOEDAS  (TOTAL: 🪙 ${state.coins})`, cardX + cardW / 2, cardY + cardH - 9);
 
@@ -2600,7 +2601,7 @@
       ctx.fillStyle = '#ef4444';
       ctx.fillRect(cardX + cardW - 105, cardY + 84, 40, 14);
       ctx.fillStyle = '#ffffff';
-      ctx.font = '7px "Press Start 2P", monospace';
+      ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('NOVO!', cardX + cardW - 85, cardY + 94);
     }
@@ -2620,7 +2621,7 @@
     ctx.stroke();
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.font = '10px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('🛒 LOJA DE SKINS [L]', GAME_WIDTH / 2, goShopBtnY + 19);
     ctx.restore();
@@ -2631,7 +2632,7 @@
       const pulse = Math.floor((state.frames / 20) % 2) === 0;
       if (pulse) {
         ctx.textAlign = 'center';
-        ctx.font = '8.5px "Press Start 2P", monospace';
+        ctx.font = '10px "Fredoka", "Trebuchet MS", sans-serif';
         ctx.fillStyle = '#ffffff';
         ctx.fillText('CLIQUE OU ESPAÇO PARA REINICIAR', GAME_WIDTH / 2, 436);
       }
@@ -2688,7 +2689,7 @@
       ctx.fill();
 
       // Instrução clara abaixo do slot
-      ctx.font = '7px "Press Start 2P", monospace';
+      ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
       ctx.fillStyle = '#92400e';
       ctx.textAlign = 'center';
       ctx.fillText('3+ PTS', x, y + 36);
@@ -2831,7 +2832,7 @@
     drawSparkle(sx, sy, (state.frames % 30 < 15 ? 4 : 2.5));
 
     // 8. Nome do nível da medalha abaixo dela
-    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = outerColor;
     ctx.textAlign = 'center';
     ctx.fillText(tierName, x, y + 36);
@@ -2899,7 +2900,7 @@
 
     // Título Superior
     ctx.textAlign = 'center';
-    ctx.font = '14px "Press Start 2P", monospace';
+    ctx.font = '16px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#facc15';
     ctx.fillText('LOJA DE SKINS', GAME_WIDTH / 2 - 18, 38);
 
@@ -2913,7 +2914,7 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.font = '10px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText('✕ SAIR', 314, 37);
 
@@ -2928,7 +2929,7 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.font = '10px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#fde047';
     ctx.fillText(`SALDO: 🪙 ${state.coins}`, GAME_WIDTH / 2, coinsBadgeY + 15);
 
@@ -2969,12 +2970,12 @@
       ctx.fill();
 
       ctx.fillStyle = '#0f172a';
-      ctx.font = '6px "Press Start 2P", monospace';
+      ctx.font = '8px "Fredoka", "Trebuchet MS", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(skin.rarity.toUpperCase(), cardX + 39, cardY + 18);
 
       // Nome da Skin
-      ctx.font = '7.5px "Press Start 2P", monospace';
+      ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
       ctx.fillStyle = '#ffffff';
       ctx.fillText(skin.name, cardX + cardW / 2, cardY + 36);
 
@@ -3011,7 +3012,7 @@
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        ctx.font = '7px "Press Start 2P", monospace';
+        ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
         ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
         ctx.fillText('✔ EM USO', btnX + btnW / 2, btnY + 15);
@@ -3022,7 +3023,7 @@
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        ctx.font = '7px "Press Start 2P", monospace';
+        ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
         ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
         ctx.fillText('EQUIPAR', btnX + btnW / 2, btnY + 15);
@@ -3034,7 +3035,7 @@
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        ctx.font = '7px "Press Start 2P", monospace';
+        ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
         ctx.fillStyle = canAfford ? '#fde047' : '#94a3b8';
         ctx.textAlign = 'center';
         ctx.fillText(`🪙 ${skin.price}`, btnX + btnW / 2, btnY + 15);
@@ -3056,13 +3057,13 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = state.shopPage > 0 ? '#ffffff' : '#64748b';
     ctx.textAlign = 'center';
     ctx.fillText('◀ ANT', 68, navY + 16);
 
     // Indicador Central de Página
-    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.font = '10px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#facc15';
     ctx.fillText(`PÁG ${state.shopPage + 1}/2`, GAME_WIDTH / 2, navY + 16);
 
@@ -3076,7 +3077,7 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = state.shopPage < 1 ? '#ffffff' : '#64748b';
     ctx.fillText('PRÓX ▶', GAME_WIDTH - 68, navY + 16);
     ctx.restore();
@@ -3095,7 +3096,7 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '8.5px "Press Start 2P", monospace';
+    ctx.font = '10px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.fillText('✕ VOLTAR AO JOGO', GAME_WIDTH / 2, backBtnY + 20);
@@ -3136,7 +3137,7 @@
 
     // Título
     ctx.textAlign = 'center';
-    ctx.font = '9.5px "Press Start 2P", monospace';
+    ctx.font = '11px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#fde047';
     ctx.fillText('CONFIRMAR COMPRA', GAME_WIDTH / 2, boxY + 28);
 
@@ -3155,7 +3156,7 @@
     ctx.restore();
 
     // Nome da Skin & Raridade
-    ctx.font = '8.5px "Press Start 2P", monospace';
+    ctx.font = '10px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText(skin.name, GAME_WIDTH / 2, boxY + 115);
 
@@ -3166,16 +3167,16 @@
     ctx.fill();
 
     ctx.fillStyle = '#0f172a';
-    ctx.font = '6.5px "Press Start 2P", monospace';
+    ctx.font = '8px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillText(skin.rarity.toUpperCase(), GAME_WIDTH / 2, boxY + 135);
 
     // Resumo de Moedas
-    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#facc15';
     ctx.fillText(`Preço: 🪙 ${skin.price}`, GAME_WIDTH / 2, boxY + 158);
 
     const remaining = state.coins - skin.price;
-    ctx.font = '6.5px "Press Start 2P", monospace';
+    ctx.font = '8px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#94a3b8';
     ctx.fillText(`Saldo: 🪙 ${state.coins}  ➔  🪙 ${remaining}`, GAME_WIDTH / 2, boxY + 174);
 
@@ -3195,7 +3196,7 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText('✔ COMPRAR', btnConfirmX + btnW / 2, btnY + 17);
 
@@ -3210,7 +3211,7 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText('✕ CANCELAR', btnCancelX + btnW / 2, btnY + 17);
 
@@ -3224,11 +3225,11 @@
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     ctx.textAlign = 'center';
-    ctx.font = '22px "Press Start 2P", monospace';
+    ctx.font = '24px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#facc15';
     ctx.fillText('PAUSADO', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 10);
 
-    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.font = '12px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText('Pressione P ou Despause', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 25);
     ctx.restore();
@@ -3480,7 +3481,7 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '7.5px "Press Start 2P", monospace';
+    ctx.font = '9px "Fredoka", "Trebuchet MS", sans-serif';
     ctx.fillStyle = toastColor;
     ctx.textAlign = 'center';
     ctx.fillText(toastMessage, GAME_WIDTH / 2, toastY + 19);
