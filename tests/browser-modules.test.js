@@ -107,6 +107,12 @@ test('cria estado inicial sem compartilhar listas do save', async () => {
   assert.equal(state.bestScoreTurbo, 8);
 });
 
+test('compila o script principal do jogo', async () => {
+  const source = await readFile(join(projectRoot, 'game.js'), 'utf8');
+
+  assert.doesNotThrow(() => new vm.Script(source, { filename: 'game.js' }));
+});
+
 test('registra teclado e Pointer Events sem duplicar callbacks', async () => {
   const listeners = {};
   const canvasListeners = {};

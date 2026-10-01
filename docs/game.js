@@ -2038,7 +2038,7 @@
         return window.FlyingBirdPhysics.getPipeSpeed({
           mode: state.currentMode,
           baseSpeed: this.baseSpeed,
-          state.score
+          score: state.score
         });
       }
       if (state.currentMode === GAME_MODE.TURBO) {
